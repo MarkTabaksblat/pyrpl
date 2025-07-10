@@ -78,6 +78,13 @@ module red_pitaya_dsp #(
    // trigger outputs for the scope
    output                trig_o,   // output from trigger dsp module
 
+   // external hardware trigger input
+   input      [  8-1: 0] trig_p_i,
+   input      [  8-1: 0] trig_n_i,
+
+   input [16-1: 0] ext_trig_i  , // {8 DIO_N_PIN INPUT, 8 DIO_P_PIN INPUT}
+   output [16-1: 0] ext_trig_o  , // {8 DIO_N_PIN OUTPUT, 8 DIO_P_PIN OUTPUT}
+
    // system bus
    input      [ 32-1: 0] sys_addr        ,  //!< bus address
    input      [ 32-1: 0] sys_wdata       ,  //!< bus write data
@@ -99,8 +106,8 @@ localparam PID0  = 'd0; //formerly PID11
 localparam PID1  = 'd1; //formerly PID12: input2->output1
 localparam PID2  = 'd2; //formerly PID21: input1->output2
 localparam PID3  = 'd3; //formerly PID22
-localparam TRIG  = 'd3; //formerly PID3
-localparam IIR   = 'd4; //IIR filter to connect in series to PID module
+localparam TRIG0  = 'd3; //formerly PID3
+localparam TRIG1  = 'd4; //formerly IIR filter to connect in series to PID module
 localparam IQ0   = 'd5; //for PDH signal generation
 localparam IQ1   = 'd6; //for NA functionality
 localparam IQ2   = 'd7; //for PFD error signal
@@ -252,12 +259,18 @@ always @(posedge clk_i) begin
       input_select [PID3] <= ADC1;
       output_select[PID3] <= OFF;
 
-      input_select [IIR] <= ADC1;
-      output_select[IIR] <= OFF;
+      //input_select [IIR] <= ADC1;
+      //output_select[IIR] <= OFF;
+
+      input_select [TRIG0] <= ADC1;
+      output_select[TRIG0] <= OFF;
+
+      input_select [TRIG1] <= ADC1;
+      output_select[TRIG1] <= OFF;
 
       input_select [IQ0] <= ADC1;
       output_select[IQ0] <= OFF;
-      
+
       input_select [IQ1] <= ADC1;
       output_select[IQ1] <= OFF;
 
@@ -310,19 +323,23 @@ end
 //PID
 
 wire [14-1:0] diff_input_signal [3-1:0];
+wire [14-1:0] iq_diff_input_signal [3-1:0];
 wire [14-1:0] diff_output_signal [3-1:0];
 //assign diff_input_signal[0] = input_signal[1]; // difference input of PID0 is PID1
 //assign diff_input_signal[1] = input_signal[0]; // difference input of PID1 is PID0
 assign diff_input_signal[0] = diff_output_signal[1]; // difference input of PID0 is PID1
 assign diff_input_signal[1] = diff_output_signal[0]; // difference input of PID1 is PID0
 assign diff_input_signal[2] = {14{1'b0}};      // difference input of PID2 is zero
+assign iq_diff_input_signal[0] = input_signal[5] - input_signal[7]; // difference input for iq0 is (iq0 - iq2)
+assign iq_diff_input_signal[1] = input_signal[6] - input_signal[7]; // difference input for iq1 is (iq1 - iq2)
 
 generate for (j = 0; j < 3; j = j+1) begin
    red_pitaya_pid_block i_pid (
      // data
      .clk_i        (  clk_i          ),  // clock
      .rstn_i       (  rstn_i         ),  // reset - active low
-     .sync_i       (  sync[j]        ),  // syncronization of different dsp modules
+     .paused_i       ( (!sync[j]) | trig_p_i[j] ), // pause pid - paused when high, unpaused when low,
+                                                   // i.e. paused when either sync is low (checkbox activated) or DIO_P0 is high
      .dat_i        (  input_signal [j] ),  // input data
      .dat_o        (  output_direct[j]),  // output data
 	 .diff_dat_i   (  diff_input_signal[j] ),  // input data for differential mode
@@ -340,9 +357,8 @@ generate for (j = 0; j < 3; j = j+1) begin
 end
 endgenerate
 
-wire trig_signal;
 //TRIG
-generate for (j = 3; j < 4; j = j+1) begin
+generate for (j = 3; j < 5; j = j+1) begin
    red_pitaya_trigger_block i_trigger (
      // data
      .clk_i        (  clk_i          ),  // clock
@@ -351,7 +367,8 @@ generate for (j = 3; j < 4; j = j+1) begin
      .dat_o        (  output_direct[j]),  // output data
      .signal_o     (  output_signal[j]),  // output signal
      .phase1_i     (  asg1phase_i ),  // phase input
-     .trig_o       (  trig_signal ),
+     .trig_o       (  ext_trig_o[j] ),
+     .trig_i       (  ext_trig_i ),
 
 	 //communincation with PS
 	 .addr ( sys_addr[16-1:0] ),
@@ -363,9 +380,13 @@ generate for (j = 3; j < 4; j = j+1) begin
    );
 end
 endgenerate
-assign trig_o = trig_signal;
+
+// connect trigger wire to scope
+assign trig_o = ext_trig_o[3] | ext_trig_o[4];
+
 
 //IIR module 
+/*
 generate for (j = 4; j < 5; j = j+1) begin
     red_pitaya_iir_block iir (
 	     // data
@@ -384,7 +405,7 @@ generate for (j = 4; j < 5; j = j+1) begin
       );
 	  assign output_signal[j] = output_direct[j];
 end endgenerate
-
+*/
 
 //IQ modules
 generate for (j = 5; j < 7; j = j+1) begin
@@ -394,8 +415,9 @@ generate for (j = 5; j < 7; j = j+1) begin
 	     // data
 	     .clk_i        (  clk_i          ),  // clock
 	     .rstn_i       (  rstn_i         ),  // reset - active low
-         .sync_i       (  sync[j]        ),  // syncronization of different dsp modules
-	     .dat_i        (  input_signal [j] ),  // input data
+         .sync_i       (  sync[j] && !trig_p_i[0]  ),  // syncronization of different dsp modules
+	      // .dat_i        (  input_signal [j] ),  // input data
+        .dat_i        (  iq_diff_input_signal[j-5] ), // difference input for the iq module (hard-coded for now)
 	     .dat_o        (  output_direct[j]),  // output data
 		 .signal_o     (  output_signal[j]),  // output signal
 
@@ -415,26 +437,25 @@ end endgenerate
 
 // IQ with two outputs
 generate for (j = 7; j < 8; j = j+1) begin
-    red_pitaya_iq_block   #( .QUADRATUREFILTERSTAGES(4) )
-      iq_2_outputs
-      (
-         // data
-         .clk_i        (  clk_i          ),  // clock
-         .rstn_i       (  rstn_i         ),  // reset - active low
-         .sync_i       (  sync[j]        ),  // syncronization of different dsp modules
-         .dat_i        (  input_signal [j] ),  // input data
-         .dat_o        (  output_direct[j]),  // output data
-         .signal_o     (  output_signal[j]),  // output signal
-         .signal2_o    (  output_signal[j*2]),  // output signal 2
-
-         //communincation with PS
-         .addr ( sys_addr[16-1:0] ),
-         .wen  ( sys_wen & (sys_addr[20-1:16]==j) ),
-         .ren  ( sys_ren & (sys_addr[20-1:16]==j) ),
-         .ack  ( module_ack[j] ),
-         .rdata (module_rdata[j]),
-         .wdata (sys_wdata)
-      );
+   red_pitaya_iq_block   #( .QUADRATUREFILTERSTAGES(4) )
+     iq_2_outputs
+     (
+        // data
+        .clk_i        (  clk_i          ),  // clock
+        .rstn_i       (  rstn_i         ),  // reset - active low
+        .sync_i       (  sync[j]  && (!trig_p_i[0] | sync[0])      ),  // syncronization of different dsp modules
+        .dat_i        (  input_signal [j] ),  // input data
+        .dat_o        (  output_direct[j]),  // output data
+        .signal_o     (  output_signal[j]),  // output signal
+        .signal2_o    (  output_signal[j*2]),  // output signal 2
+        //communincation with PS
+        .addr ( sys_addr[16-1:0] ),
+        .wen  ( sys_wen & (sys_addr[20-1:16]==j) ),
+        .ren  ( sys_ren & (sys_addr[20-1:16]==j) ),
+        .ack  ( module_ack[j] ),
+        .rdata (module_rdata[j]),
+        .wdata (sys_wdata)
+     );
 end endgenerate
 
 endmodule

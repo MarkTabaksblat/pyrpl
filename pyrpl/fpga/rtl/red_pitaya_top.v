@@ -194,8 +194,8 @@ red_pitaya_ps i_ps (
   .fclk_clk_o    (fclk        ),
   .fclk_rstn_o   (frstn       ),
   // ADC analog inputs
-  .vinp_i        (vinp_i      ),  // voltages p
-  .vinn_i        (vinn_i      ),  // voltages n
+//  .vinp_i        (vinp_i      ),  // voltages p
+//  .vinn_i        (vinn_i      ),  // voltages n
    // system read/write channel
   .sys_clk_o     (ps_sys_clk  ),  // system clock
   .sys_rstn_o    (ps_sys_rstn ),  // system reset - active low
@@ -392,6 +392,9 @@ wire  [  8-1: 0] exp_p_in , exp_n_in ;
 wire  [  8-1: 0] exp_p_out, exp_n_out;
 wire  [  8-1: 0] exp_p_dir, exp_n_dir;
 
+wire [16-1:0] dsp_trig_out;
+
+
 red_pitaya_hk i_hk (
   // system signals
   .clk_i           (  adc_clk                    ),  // clock
@@ -407,6 +410,8 @@ red_pitaya_hk i_hk (
   .exp_n_dat_i     (  exp_n_in                   ),
   .exp_n_dat_o     (  exp_n_out                  ),
   .exp_n_dir_o     (  exp_n_dir                  ),
+   // internal trigger signals
+  .dsp_trig_i      (  dsp_trig_out               ),  // 16-bit wide DSP module trigger output
    // System bus
   .sys_addr        (  sys_addr                   ),  // address
   .sys_wdata       (  sys_wdata                  ),  // write data
@@ -497,6 +502,7 @@ red_pitaya_asg i_asg (
 //---------------------------------------------------------------------------------
 //  DSP module
 
+
 red_pitaya_dsp i_dsp (
    // signals
   .clk_i           (  adc_clk                    ),  // clock
@@ -518,6 +524,12 @@ red_pitaya_dsp i_dsp (
   .pwm3            (  pwm_signals[3]         ),
 
   .trig_o          (  dsp_trigger            ),
+
+  .trig_p_i          (  exp_p_in            ), // external DIO_P0-7 trigger input
+  .trig_n_i          (  exp_n_in            ), // external DIO_N0-7 trigger input
+
+  .ext_trig_i      (  {exp_n_in, exp_p_in}   ),
+  .ext_trig_o      (   dsp_trig_out          ),
 
   // System bus
   .sys_addr        (  sys_addr                   ),  // address
@@ -554,6 +566,10 @@ red_pitaya_ams i_ams (
   .dac_d_o         (  pwm_cfg_d                  ),
   .pwm0_i 		   (  pwm_signals[0]             ),
   .pwm1_i 		   (  pwm_signals[1]             ),
+
+   // internal trigger signals
+  .dsp_trig_i      (  dsp_trig_out               ),  // 16-bit wide DSP module trigger output
+
    // System bus
   .sys_addr        (  sys_addr                   ),  // address
   .sys_wdata       (  sys_wdata                  ),  // write data
@@ -562,7 +578,11 @@ red_pitaya_ams i_ams (
   .sys_ren         (  sys_ren[4]                 ),  // read enable
   .sys_rdata       (  sys_rdata[ 4*32+31: 4*32]  ),  // read data
   .sys_err         (  sys_err[4]                 ),  // error indicator
-  .sys_ack         (  sys_ack[4]                 )   // acknowledge signal
+  .sys_ack         (  sys_ack[4]                 ),  // acknowledge signal
+
+  // XADC pins
+  .vinp_i          (  vinp_i                     ),  // voltages p
+  .vinn_i          (  vinn_i                     )  // voltages n
 );
 
 

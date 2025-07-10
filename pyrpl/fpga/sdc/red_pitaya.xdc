@@ -120,18 +120,20 @@ set_property PACKAGE_PIN P15 [get_ports {dac_pwm_o[2]}]
 set_property PACKAGE_PIN U13 [get_ports {dac_pwm_o[3]}]
 
 ### XADC
+# set_property IOSTANDARD TDMS_33 [get_ports {vinp_i[*]}]
+# set_property IOSTANDARD TDMS_33 [get_ports {vinn_i[*]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {vinp_i[*]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {vinn_i[*]}]
 set_property LOC XADC_X0Y0 [get_cells i_ams/XADC_inst]
 #AD0
-set_property PACKAGE_PIN C20 [get_ports {vinp_i[1]}]
-set_property PACKAGE_PIN B20 [get_ports {vinn_i[1]}]
+set_property PACKAGE_PIN C20 [get_ports {vinp_i[0]}]  # 1
+set_property PACKAGE_PIN B20 [get_ports {vinn_i[0]}]  # 1
 #AD1
-set_property PACKAGE_PIN E17 [get_ports {vinp_i[2]}]
-set_property PACKAGE_PIN D18 [get_ports {vinn_i[2]}]
+#set_property PACKAGE_PIN E17 [get_ports {vinp_i[1]}]  # 2
+#set_property PACKAGE_PIN D18 [get_ports {vinn_i[1]}]  # 2
 #AD8
-set_property PACKAGE_PIN B19 [get_ports {vinp_i[0]}]
-set_property PACKAGE_PIN A20 [get_ports {vinn_i[0]}]
+set_property PACKAGE_PIN B19 [get_ports {vinp_i[2]}]  # 0
+set_property PACKAGE_PIN A20 [get_ports {vinn_i[2]}]  # 0
 #AD9
 set_property PACKAGE_PIN E18 [get_ports {vinp_i[3]}]
 set_property PACKAGE_PIN E19 [get_ports {vinn_i[3]}]
@@ -146,6 +148,8 @@ set_property SLEW       FAST     [get_ports {exp_p_io[*]}]
 set_property SLEW       FAST     [get_ports {exp_n_io[*]}]
 set_property DRIVE      8        [get_ports {exp_p_io[*]}]
 set_property DRIVE      8        [get_ports {exp_n_io[*]}]
+set_property PULLDOWN   TRUE     [get_ports {exp_p_io[*]}]
+set_property PULLDOWN   TRUE     [get_ports {exp_n_io[*]}]
 
 set_property PACKAGE_PIN G17 [get_ports {exp_p_io[0]}]
 set_property PACKAGE_PIN G18 [get_ports {exp_n_io[0]}]
@@ -163,11 +167,6 @@ set_property PACKAGE_PIN K16 [get_ports {exp_p_io[6]}]
 set_property PACKAGE_PIN J16 [get_ports {exp_n_io[6]}]
 set_property PACKAGE_PIN M14 [get_ports {exp_p_io[7]}]
 set_property PACKAGE_PIN M15 [get_ports {exp_n_io[7]}]
-
-#set_property PULLDOWN TRUE [get_ports {exp_p_io[0]}]
-#set_property PULLDOWN TRUE [get_ports {exp_n_io[0]}]
-#set_property PULLUP   TRUE [get_ports {exp_p_io[7]}]
-#set_property PULLUP   TRUE [get_ports {exp_n_io[7]}]
 
 ### SATA connector
 set_property IOSTANDARD LVCMOS18 [get_ports {daisy_p_o[*]}]
@@ -212,12 +211,6 @@ set_input_delay -clock adc_clk 3.400 [get_ports adc_dat_b_i[*]]
 
 create_clock -period 4.000 -name rx_clk  [get_ports daisy_p_i[1]]
 
-set_property LOC XADC_X0Y0 [get_cells i_ams/XADC_inst]
-
-############################################################################
-# Clock constraints                                                        #
-############################################################################
-
 set_false_path -from [get_clocks adc_clk]     -to [get_clocks dac_clk_out]
 set_false_path -from [get_clocks clk_fpga_0]  -to [get_clocks ser_clk_out]
 set_false_path -from [get_clocks clk_fpga_0]  -to [get_clocks dac_2clk_out]
@@ -226,10 +219,3 @@ set_false_path -from [get_clocks clk_fpga_0]  -to [get_clocks par_clk]
 set_false_path -from [get_clocks dac_clk_out] -to [get_clocks dac_2clk_out]
 set_false_path -from [get_clocks dac_clk_out] -to [get_clocks dac_2ph_out]
 
-### SATA connector
-# set_property IOSTANDARD DIFF_HSTL_I_18 [get_ports {daisy_p_o[*]}]
-# set_property IOSTANDARD DIFF_HSTL_I_18 [get_ports {daisy_n_o[*]}]
-# set_property IOSTANDARD DIFF_HSTL_I_18 [get_ports {daisy_p_i[*]}]
-# set_property IOSTANDARD DIFF_HSTL_I_18 [get_ports {daisy_n_i[*]}]
-
-# set_property PULLTYPE PULLUP [get_ports daisy_p_i[1]]

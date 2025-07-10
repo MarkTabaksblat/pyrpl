@@ -38,11 +38,13 @@ generate_target all [get_files    system.bd]
 # 3. constraints
 ################################################################################
 
-read_verilog                      ./project/pyrpl.gen/sources_1/bd/system/hdl/system_wrapper.v
+read_verilog                      ./project/pyrpl.srcs/sources_1/bd/system/hdl/system_wrapper.v
 
 add_files                         $path_rtl/axi_master.v
 add_files                         $path_rtl/axi_slave.v
 add_files                         $path_rtl/axi_wr_fifo.v
+
+add_files                         $path_rtl/bus_clk_bridge.v
 
 add_files                      $path_rtl/red_pitaya_ams.v
 add_files                      $path_rtl/red_pitaya_asg_ch.v

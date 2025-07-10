@@ -70,7 +70,7 @@ module red_pitaya_pid_block #(
    parameter     DERIVATIVE = 0   , //disables differential gain if 0
    
    //parameters for input pre-filter
-   parameter     FILTERSTAGES = 4 ,
+   parameter     FILTERSTAGES = 3 ,
    parameter     FILTERSHIFTBITS = 5,
    parameter     FILTERMINBW = 10,
    
@@ -79,9 +79,9 @@ module red_pitaya_pid_block #(
 )
 (
    // data
-   input                 clk_i           ,  // clock
-   input                 rstn_i          ,  // reset - active low
-   input                 sync_i          ,  // synchronization input, active high
+   input                 clk_i           ,        // clock
+   input                 rstn_i          ,        // reset - active low
+   input                 paused_i          ,      // synchronization/pausing input
    input signed     [ 14-1: 0] dat_i           ,  // input data
    output signed    [ 14-1: 0] dat_o           ,  // output data
    input signed     [ 14-1: 0] diff_dat_i      ,  // input data for differential mode
@@ -102,11 +102,11 @@ reg            ival_write;
 reg [  3-1: 0] pause_pid_on_sync;  // register to specify which gains (P, I, and/or D) are paused during active sync signal
 reg enable_differential_mode;  // register to specify which gains (P, I, and/or D) are paused during active sync signal
 wire pause_i_on_sync;
-assign pause_i = pause_pid_on_sync[0] & !sync_i;
+assign pause_i = pause_pid_on_sync[0] & paused_i;
 wire pause_p_on_sync;
-assign pause_p = pause_pid_on_sync[1] & !sync_i;
+assign pause_p = pause_pid_on_sync[1] & paused_i;
 wire pause_d_on_sync;
-assign pause_d = pause_pid_on_sync[2] & !sync_i;
+assign pause_d = pause_pid_on_sync[2] & paused_i;
 reg [ GAINBITS-1: 0] set_kp;   // Kp
 reg [ GAINBITS-1: 0] set_ki;   // Ki
 reg [ GAINBITS-1: 0] set_kd;   // Kd
@@ -200,7 +200,7 @@ always @(posedge clk_i) begin
    end
    else begin
       if (enable_differential_mode == 1'b1)
-         error <= $signed(dat_i_filtered) - $signed(diff_dat_i) ;
+         error <= $signed(dat_i_filtered) - $signed(diff_dat_i) - $signed(set_sp);
       else
          error <= $signed(dat_i_filtered) - $signed(set_sp) ;
    end

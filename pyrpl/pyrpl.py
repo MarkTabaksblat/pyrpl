@@ -252,6 +252,7 @@ class Pyrpl(object):
                  **kwargs):
         # logger initialisation
         self.logger = logging.getLogger(name='pyrpl') # default: __name__
+        print("THIS IS TIMO!!!!")
         # use gui or commandline for questions?
         gui = 'gui' not in kwargs or kwargs['gui']
         # get config file if None is specified
