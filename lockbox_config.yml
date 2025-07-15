@@ -17,14 +17,17 @@ pid0:
   input: iq0
   output_direct: off
   setpoint: 0.0
-  p: 0.0
+  p: 0.005
   i: 0.5
   max_voltage: 0.5
   min_voltage: -0.5
   pause_gains: pid
   paused: False
   differential_mode_enabled: True
-  # inputfilter: [0.0, 0.0, 0.0, 0.0]
+  inputfilter:
+  - 319569.6792745179
+  - 37.94553157665012
+  - 75.89113552886508
 pid1:
   input: iq1
   output_direct: off
@@ -42,7 +45,7 @@ pid2:
 
 iq0:
   acbandwidth: 4.858e+03
-  amplitude: 8.0e-03
+  amplitude: 4.0e-03
   bandwidth:
   - 6.071e+02
   - 1.518e+02
@@ -54,15 +57,17 @@ iq0:
   output_direct: off
   output_signal: quadrature
   phase: 0
-  quadrature_factor: 10
+  quadrature_factor: -10
 iq1:
   acbandwidth: 3.108e+06
   bandwidth:
+  - 6.071e+02
   - 1.518e+02
-  - 3.036e+02
+    # - 7.589e+01
+    # - 3.036e+02
   input: in1
   frequency: 2.5e+3
-  quadrature_factor: 5000
+  quadrature_factor: -5000
   output_signal: quadrature
   gain: 0.0
   amplitude: 0.0

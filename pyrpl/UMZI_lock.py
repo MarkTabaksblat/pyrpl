@@ -1,6 +1,7 @@
 import yaml
 import time
 import numpy as np
+import xarray as xr
 from tqdm import tqdm
 from lmfit import Model
 from pyrpl import Pyrpl
@@ -8,6 +9,7 @@ from yamlcore import CoreLoader
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 from pyrpl.UMZI_models import SineModel, CosineModel
+
 
 ####################
 #    MAIN CLASS    #
@@ -44,18 +46,22 @@ class RPLockboxMZI(Pyrpl):
                 raise ValueError(f"Error loading YAML file: {exc}")
             
     def calibrate(self, do_plot=False):
+        '''
+        Calibration function for the UMZI locking setup that measures the phase-to-voltage relation for both the detector and IQ channels.
+        '''
         self.take_calibration_data()
         self.fit_calibration_data()
-        # self.fit_calibration_data(cal_type="det")
-    
         if do_plot:
-            self.plot_calibration(cal_type="det")
-            self.plot_calibration(cal_type="iq")
+            self.plot_calibrations()
 
     def setup_locking(self, phase_setpoint):
+        '''
+        Setup function for the locking scheme that calculates the required magnitudes of both IQ outputs
+        that are required to lock the interferometer at a given phase setpoint.
+        '''
         self.phase_setpoint = phase_setpoint
 
-        new_quadrature_factor_iq0 = np.cos(phase_setpoint) * self.iq_calib_gain_ch1 / (self.iq_model_ch1.fit_result.params[self.iq_model_ch1.prefix+'amp'].value)
+        new_quadrature_factor_iq0 = - np.cos(phase_setpoint) * self.iq_calib_gain_ch1 / (self.iq_model_ch1.fit_result.params[self.iq_model_ch1.prefix+'amp'].value)
         new_quadrature_factor_iq1 = np.sin(phase_setpoint) * self.iq_calib_gain_ch2 / (self.iq_model_ch2.fit_result.params[self.iq_model_ch2.prefix+'amp'].value)
 
         # First two cases are required to avoid rounding errors for locking near 0, pi/2, pi, ...
@@ -70,12 +76,48 @@ class RPLockboxMZI(Pyrpl):
             self.rp.iq0.setup(quadrature_factor=new_quadrature_factor_iq0)
             self.rp.iq1.setup(quadrature_factor=new_quadrature_factor_iq1)
 
-        self.rp.pid0.setup(setpoint=0, input="iq1", differential_mode_enabled=True, pause_gains="pid", min_voltage=-1, max_voltage=1, p=0.1, i=1.0)
-        self.rp.pid1.setup(input="iq0", output_direct='off')
+        self.rp.pid0.setup(setpoint=0, input="iq0", differential_mode_enabled=True)
+        self.rp.pid1.setup(input="iq1", output_direct='off')
+        self.rp.iq0.setup(output_direct="out1")
+
+    def start_locking(self, phase_setpoint=None):
+        '''
+        Function to start the locking process. This function turns on the PID loop, turns off all ASG outputs and configures
+        the scope to give a graphical clue for fine-adjusting the locking parameters.
+        '''
+        if phase_setpoint is not None:
+            self.setup_locking(phase_setpoint)
+        else:
+            assert hasattr(self, 'phase_setpoint'), "Phase setpoint not defined. Please call setup_locking() first."
+
+        self.rp.asg0.setup(output_direct='off')
+        self.rp.asg1.setup(output_direct='off')
+        self.rp.pid0.setup(output_direct='out1')
+        self.rp.iq0.setup(output_direct='out1')
+        self.rp.iq1.setup(output_direct='off')
+        self.rp.scope.setup(
+            input1="in1",
+            input2="in2",
+            ch_math_active=True,
+            math_formula=f"{self.det_model_ch1.phase_relation(self.phase_setpoint)}*ch1/ch1",
+            trigger_source="ext_positive_edge",
+            duration = 10 / self.rp.iq0.frequency,
+            run_continuous=True,
+            rolling_mode=False,
+            trigger_delay=0.0
+        )
+        self.rp.iq0.synchronize_iqs()
+        self.rp.pid0.reg_integral = 0
 
     def take_calibration_data(self):
-        # self.rp.asg0.setup(output_direct='out1', waveform='cos', amplitude=0.2, frequency=10) #0.55amp
-        self.rp.asg0.setup(output_direct='out1', waveform='ramp', amplitude=0.08, frequency=10) #0.55amp
+        '''
+        Execution of all the required steps to take the calibration data, both for the detector voltages
+        as well as the IQ channels.
+        '''
+        ##########################
+        #      IQ channels       #
+        ##########################
+        self.rp.asg0.setup(output_direct='out1', waveform='ramp', amplitude=0.08, frequency=10)
         self.rp.scope.setup(
             input1='iq0',
             input2='iq1',
@@ -83,15 +125,20 @@ class RPLockboxMZI(Pyrpl):
             math_formula='ch1-ch2', 
             trigger_source='asg0', 
             duration=1/(self.rp.asg0.frequency), 
-            trigger_delay = 1/(2*self.rp.asg0.frequency)
+            trigger_delay = 1/(2*self.rp.asg0.frequency),
+            rolling_mode=False,
         )
-        # self.rp.iq0.setup( **self.settings['iq0'])
+
         self.rp.iq0.setup(output_direct='out1', quadrature_factor=self.settings['iq0']['quadrature_factor'])
         self.rp.iq1.setup(quadrature_factor=self.settings['iq1']['quadrature_factor'])
         self.rp.pid0.setup(output_direct='off')
         self.rp.iq2.setup(output_direct='off', input="in2")
         self.rp.iq0.synchronize_iqs()
 
+
+        ##########################
+        #   Detector channels    #
+        ##########################
         self.rp.scope.single()
         iq_calib_data_ch1, iq_calib_data_ch2 = self.rp.scope.save_curve()
         self.rp.scope.setup(
@@ -104,8 +151,10 @@ class RPLockboxMZI(Pyrpl):
             trigger_delay = 1/(2*self.rp.asg0.frequency)
         )
         self.rp.iq0.setup(output_direct='off')
-
         self.rp.scope.single()
+
+        # Data saving is done after taking both singles to minimize the time between the two measurements,
+        # thereby minimizing the drift of the phase.
         iq_calib_data_time, iq_calib_data_ch1 = iq_calib_data_ch1.data
         _, iq_calib_data_ch2 = iq_calib_data_ch2.data
         det_calib_data_ch1, det_calib_data_ch2 = self.rp.scope.save_curve()
@@ -116,22 +165,27 @@ class RPLockboxMZI(Pyrpl):
         # to get proper cosine/sine fits.
         time_filter_cond_iq = np.logical_and(
             iq_calib_data_time > 0.1 / self.rp.asg0.frequency,
-            # iq_calib_data_time < 0.75 / self.rp.asg0.frequency
             iq_calib_data_time < 0.5 / self.rp.asg0.frequency
         )
         time_filter_cond_det = np.logical_and(
             det_calib_data_time > 0.1 / self.rp.asg0.frequency,
-            # det_calib_data_time < 0.75 / self.rp.asg0.frequency
             det_calib_data_time < 0.5 / self.rp.asg0.frequency
         )
         self.iq_calib_time = iq_calib_data_time[time_filter_cond_iq]
         self.iq_calib_ch1, self.iq_calib_ch2 = iq_calib_data_ch1[time_filter_cond_iq], iq_calib_data_ch2[time_filter_cond_iq]
         self.det_calib_time = det_calib_data_time[time_filter_cond_det]
         self.det_calib_ch1, self.det_calib_ch2 = det_calib_data_ch1[time_filter_cond_det], det_calib_data_ch2[time_filter_cond_det]
+
+        # Save the quadrature factors for both calibrations to later calculate the required
+        # magnitudes of the IQ outputs to lock the interferometer at a given phase setpoint.
         self.iq_calib_gain_ch1, self.iq_calib_gain_ch2 = self.rp.iq0.quadrature_factor, self.rp.iq1.quadrature_factor
 
-
     def fit_calibration_data(self):
+        '''
+        Fitting function for the calibration data. It creates CosineModel and SineModel instances,
+        which are lmfit.Model subclasses. These custom models are used to fit the calibration data
+        and extract the required parameters for locking the interferometer.
+        '''
         self.det_model_ch1 = CosineModel("det", 1)
         self.det_model_ch2 = CosineModel("det", 2)
         self.iq_model_ch1 = SineModel("iq", 1)
@@ -142,202 +196,166 @@ class RPLockboxMZI(Pyrpl):
         self.det_model_ch1.perform_fit(self.det_calib_ch1, det_params_ch1, time=self.det_calib_time)
         self.det_model_ch2.perform_fit(self.det_calib_ch2, det_params_ch2, time=self.det_calib_time)
 
-        avg_phase_measured = (self.det_model_ch1.fit_result.params['det_1_phase'].value + self.det_model_ch2.fit_result.params['det_2_phase'].value) / 2
-
+        # The time-to-phase relation is locked to the same as the detector model,
+        # such that we can measure the relative phase offset between IQ and det.
         iq_params_ch1 = self.iq_model_ch1.guess(self.iq_calib_ch1, self.iq_calib_time)
         iq_params_ch2 = self.iq_model_ch2.guess(self.iq_calib_ch2, self.iq_calib_time)
-        # iq_params_ch1['iq_1_phase'].set(value=avg_phase_measured, min=avg_phase_measured - np.pi/2, max=avg_phase_measured + np.pi/2, vary=True)
-        # iq_params_ch2['iq_2_phase'].set(value=avg_phase_measured, min=avg_phase_measured - np.pi/2, max=avg_phase_measured + np.pi/2, vary=True)
+        self.iq_model_ch1.lock_phase_guess(iq_params_ch1, self.det_model_ch1)
+        self.iq_model_ch2.lock_phase_guess(iq_params_ch2, self.det_model_ch2)
         self.iq_model_ch1.perform_fit(self.iq_calib_ch1, iq_params_ch1, time=self.iq_calib_time)
         self.iq_model_ch2.perform_fit(self.iq_calib_ch2, iq_params_ch2, time=self.iq_calib_time)
 
-    def setup_intermittent_locking(self, unlock_duration=50e-6):
-        self.unlock_duration = unlock_duration
-        print(f"Set picoscope output frequency to {1/(2*unlock_duration)} Hz please")
-        self.rp.scope.setup(
-            input1='in1', 
-            input2='in2', 
-            ch_math_active=False, 
-            trigger_source='ext_positive_edge', 
-            threshold=0.0, 
-            duration=2*unlock_duration, 
-            run_continuous=True, 
-            trigger_delay=0.0
-        )
-
     def unlock(self):
+        ''' Stop the PID loop and turn off all outputs.'''
         self.rp.pid0.setup(output_direct='off')
         self.rp.asg1.setup(output_direct='off')
         self.rp.pid0.reg_integral = 0
-        self.rp.scope.setup(input1='iq0', input2='iq1', ch_math_active=False, rolling_mode=True, duration=1.07, trigger_source='immediately')
+        self.rp.scope.setup(input1='in1', input2='in2', ch_math_active=False, rolling_mode=True, duration=1.07, trigger_source='immediately')
         self.rp.scope.run_continuous = True
 
-    def improve_lock_accuracy(self, num_shots, max_tolerance = 0.1, do_print=True, do_analyze=True):
-        num_samples_per_shot = int(self.rp.scope.duration / self.rp.scope.sampling_time)
-        ch1_data_init = np.empty((int(num_shots), num_samples_per_shot))
-        ch2_data_init = np.empty((int(num_shots), num_samples_per_shot))
-        for shot in tqdm(range(int(num_shots))):
-            if self.rp.pid0.reg_integral > 0.5:
-                self.rp.pid0.reg_integral = 0
-                time.sleep(0.1)
-            self.rp.scope.single()
-            curve1, curve2 = self.rp.scope.save_curve()
-            time_data, ch1_data_init[shot,:] = curve1.data
-            _, ch2_data_init[shot,:] = curve2.data
+    def test_intermittent_locking(self, phase_setpoint, num_shots, photon_timing, total_unlock_duration):
+        '''
+        Function that characterizes the quality of the intermittent locking scheme. It outputs a figure that summarizes
+        the statistical results and an xarray.Dataset that contains all the relevant data for further analysis.
+        '''
+        self.phase_setpoint = phase_setpoint
+        self.unlock_duration = total_unlock_duration
 
-        self.unlocked_ch1_data_init = ch1_data_init[:, np.logical_and(time_data>2e-6, time_data<9*self.unlock_duration/10)]
-        self.unlocked_ch2_data_init = ch2_data_init[:, np.logical_and(time_data>2e-6, time_data<9*self.unlock_duration/10)]
+        self.start_locking(phase_setpoint)
+        time.sleep(0.1)
 
-        ## FOR CHANNEL 1 ##
-        expected_ch1_voltage = self.det_model_ch1.phase_relation(self.phase_setpoint)
-        ch1_phase_relation_is_increasing = self.det_model_ch1.phase_relation(self.phase_setpoint+0.0001) > expected_ch1_voltage
-        actual_phase_ch1_locked_on = self.det_model_ch1.get_phase_from_voltage(np.mean(self.unlocked_ch1_data_init), function_increasing=ch1_phase_relation_is_increasing)
-        calibrated_setpoint_ch1 = np.sin(actual_phase_ch1_locked_on - self.phase_setpoint)
+        time_data, ch1_data, ch2_data = self.measure_lock_accuracy(num_shots, photon_timing, self.unlock_duration)
+        photon_time_idx = np.argmin(np.abs(time_data - photon_timing))
+        ch1_photon_data = ch1_data[:, photon_time_idx]
+        ch2_photon_data = ch2_data[:, photon_time_idx]
+        phases_channel1 = self.det_model_ch1.get_phase_from_voltage(ch1_photon_data, function_increasing=phase_setpoint < np.pi)
+        phases_channel2 = self.det_model_ch2.get_phase_from_voltage(ch2_photon_data, function_increasing=phase_setpoint > np.pi)
+        fidelities_ch1 = 1/2 * (1 + np.cos(np.abs(phases_channel1 - phase_setpoint)))
+        fidelities_ch2 = 1/2 * (1 + np.cos(np.abs(phases_channel2 - phase_setpoint)))
 
-        ## FOR CHANNEL 2 ##
-        expected_ch2_voltage = self.det_model_ch2.phase_relation(self.phase_setpoint)
-        ch2_phase_relation_is_increasing = self.det_model_ch2.phase_relation(self.phase_setpoint+0.0001) > expected_ch2_voltage
-        actual_phase_ch2_locked_on = self.det_model_ch2.get_phase_from_voltage(np.mean(self.unlocked_ch2_data_init), function_increasing=ch2_phase_relation_is_increasing)
-        calibrated_setpoint_ch2 = np.sin(actual_phase_ch2_locked_on - self.phase_setpoint)
+        fig, ax = plt.subplots(3, 2, figsize=(8, 8), sharey=True)
 
-        if do_print:
-            print(
-                f"Measured voltage ch1: {np.mean(self.unlocked_ch1_data_init):.3f} +/- {np.mean(np.std(self.unlocked_ch1_data_init, axis=1)):.3f} V, while expecting {expected_ch1_voltage:.3f} V --> new setpoint: {calibrated_setpoint_ch1:.3f}.\n" +
-                f"Measured voltage ch2: {np.mean(self.unlocked_ch2_data_init):.3f} +/- {np.mean(np.std(self.unlocked_ch2_data_init, axis=1)):.3f} V, while expecting {expected_ch2_voltage:.3f} V --> new setpoint: {calibrated_setpoint_ch2:.3f}.\n"
-                f"Taking the average of the two, the new setpoint is: {(calibrated_setpoint_ch1 + calibrated_setpoint_ch2) / 2:.3f}."
-            )
-
-        self.rp.pid0.setup(setpoint=(calibrated_setpoint_ch1 + calibrated_setpoint_ch2) / 2)
-        time.sleep(0.1)  # Allow some time for the PID to adjust
-        ch1_data_final = np.empty((int(num_shots), num_samples_per_shot))
-        ch2_data_final = np.empty((int(num_shots), num_samples_per_shot))
-        for shot in tqdm(range(int(num_shots))):
-            self.rp.scope.single()
-            curve1, curve2 = self.rp.scope.save_curve()
-            time_data, ch1_data_final[shot,:] = curve1.data
-            _, ch2_data_final[shot,:] = curve2.data
-
-        self.unlocked_ch1_data_final = ch1_data_final[:, np.logical_and(time_data>self.unlock_duration/10, time_data<9*self.unlock_duration/10)]
-        self.unlocked_ch2_data_final = ch2_data_final[:, np.logical_and(time_data>self.unlock_duration/10, time_data<9*self.unlock_duration/10)]
-
-        self.rp.scope.run_continuous = True
-
-        if do_print:
-            print(
-                f"Measured voltage ch1: {np.mean(self.unlocked_ch1_data_init):.3f} +/- {np.mean(np.std(self.unlocked_ch1_data_init, axis=1)):.3f} V -> {np.mean(self.unlocked_ch1_data_final):.3f} +/- {np.mean(np.std(self.unlocked_ch1_data_final, axis=1)):.3f} V (expected {expected_ch1_voltage:.3f} V) \n" +
-                f"Measured voltage ch1: {np.mean(self.unlocked_ch2_data_init):.3f} +/- {np.mean(np.std(self.unlocked_ch2_data_init, axis=1)):.3f} V -> {np.mean(self.unlocked_ch2_data_final):.3f} +/- {np.mean(np.std(self.unlocked_ch2_data_final, axis=1)):.3f} V (expected {expected_ch2_voltage:.3f} V)"
-            )
-
-        if do_analyze:
-            self.analyze_lock_improvement()
-
-    def analyze_lock_improvement(self):
-        function_increasing_ch1 = self.det_model_ch1.phase_relation(self.phase_setpoint+0.0001) > self.det_model_ch1.phase_relation(self.phase_setpoint)
-        self.phases_ch1_init = np.array([
-            self.det_model_ch1.get_phase_from_voltage(voltage, function_increasing=function_increasing_ch1) 
-            for voltage in self.unlocked_ch1_data_init.mean(axis=1)
-        ])
-        function_increasing_ch2 = self.det_model_ch2.phase_relation(self.phase_setpoint+0.0001) > self.det_model_ch2.phase_relation(self.phase_setpoint)
-        self.phases_ch2_init = np.array([
-            self.det_model_ch2.get_phase_from_voltage(voltage, function_increasing=function_increasing_ch2) 
-            for voltage in self.unlocked_ch2_data_init.mean(axis=1)
-        ])
-        self.phases_init = (self.phases_ch1_init + self.phases_ch2_init) / 2
-        self.phases_ch1_final = np.array([
-            self.det_model_ch1.get_phase_from_voltage(voltage, function_increasing=function_increasing_ch1) 
-            for voltage in self.unlocked_ch1_data_final.mean(axis=1)
-        ])
-        self.phases_ch2_final = np.array([
-            self.det_model_ch2.get_phase_from_voltage(voltage, function_increasing=function_increasing_ch2) 
-            for voltage in self.unlocked_ch2_data_final.mean(axis=1)
-        ])
-        self.phases_final = (self.phases_ch1_final + self.phases_ch2_final) / 2
-
-        plt.figure()
-        plt.hist(self.phases_init/np.pi, bins=50, label='Init', alpha=0.5)
-        plt.hist(self.phases_final/np.pi, bins=50, label='Final', alpha=1)
-        plt.axvline(self.phase_setpoint/np.pi, color='k', ls='--', label='Setpoint')
-        plt.xlabel("Phase [pi radians]")
-        plt.ylabel("Counts")
-        plt.legend()
-        plt.title(
-            f"({np.mean(self.phases_init/np.pi):.3f} +/- {np.std(self.phases_init/np.pi):.3f}) pi -> ({np.mean(self.phases_final/np.pi):.3f} +/- {np.std(self.phases_final/np.pi):.3f}) pi"
+        ax[0,0].hist(ch1_photon_data, bins=50, label='ch1', color="red")
+        ax[0,0].axvline(self.det_model_ch1.phase_relation(phase_setpoint), color='red', linestyle='--', label='expected')
+        ax[0,0].set_title(
+            r"$V_1 = %.2f \pm %.2f$ V, expected %.2f" % (np.mean(ch1_photon_data), np.std(ch1_photon_data), self.det_model_ch1.phase_relation(phase_setpoint))
         )
-        plt.show()
+        ax[0,0].set_xlabel("Detector voltage [V]")
+        ax[0,0].set_ylabel("Counts")
+        ax[0,0].set_xlim(
+            min(np.mean(ch1_photon_data), self.det_model_ch1.phase_relation(phase_setpoint)) - 0.05, 
+            max(np.mean(ch1_photon_data), self.det_model_ch1.phase_relation(phase_setpoint)) + 0.05
+        )
 
-        return self.phases_init, self.phases_final
+        ax[0,1].hist(ch2_photon_data, bins=50, label='ch2', color="b")
+        ax[0,1].axvline(self.det_model_ch2.phase_relation(phase_setpoint), color='blue', linestyle='--', label='expected')
+        ax[0,1].set_xlabel("Detector voltage [V]")
+        ax[0,1].set_title(
+            r"$V_2 = %.2f \pm %.2f$ V, expected %.2f" % (np.mean(ch2_photon_data), np.std(ch2_photon_data), self.det_model_ch2.phase_relation(phase_setpoint))
+        )
+        ax[0,1].set_ylabel("Counts")
+        ax[0,1].set_xlim(
+            min(np.mean(ch2_photon_data), self.det_model_ch2.phase_relation(phase_setpoint)) - 0.05, 
+            max(np.mean(ch2_photon_data), self.det_model_ch2.phase_relation(phase_setpoint)) + 0.05
+        )
+        ax[1,0].hist(phases_channel1/np.pi, bins=50, label='ch1', color="red")
+        ax[1,0].axvline(phase_setpoint/np.pi, color='red', linestyle='--', label='expected')
+        ax[1,0].set_title(
+            r"$\phi_1 = (%.2f \pm %.2f) \; \pi$ rad, expected $%.2f \pi$" % (np.mean(phases_channel1)/np.pi, np.std(phases_channel1)/np.pi, phase_setpoint/np.pi)
+        )
+        ax[1,0].set_xlim(phase_setpoint/np.pi - 0.25, phase_setpoint/np.pi + 0.25)
+        ax[1,0].set_xlabel(r"$\phi$ [$\pi$ rad]")
+        ax[1,0].set_ylabel("Counts")
 
-    def plot_calibration(self, cal_type):
-        model_ch1 = getattr(self, f'{cal_type}_model_ch1')
-        model_ch2 = getattr(self, f'{cal_type}_model_ch2')
+        ax[1,1].hist(phases_channel2/np.pi, bins=50, label='ch2', color="b")
+        ax[1,1].axvline(phase_setpoint/np.pi, color='blue', linestyle='--', label='expected')
+        ax[1,1].set_xlabel(r"$\phi$ [$\pi$ rad]")
+        ax[1,1].set_title(
+            r"$\phi_2 = (%.2f \pm %.2f) \; \pi$ rad, expected $%.2f \pi$" % (np.mean(phases_channel2)/np.pi, np.std(phases_channel2)/np.pi, phase_setpoint/np.pi)
+        )
+        ax[1,1].set_xlim(phase_setpoint/np.pi - 0.25, phase_setpoint/np.pi + 0.25)
 
-        __, ax_1 = model_ch1.create_calibration_plot()
-        __, ax_2 = model_ch2.create_calibration_plot()
+        ax[2,0].hist(fidelities_ch1, bins=50, label='ch1', color="red")
+        ax[2,0].axvline(1, c="grey", linestyle='--', label='Ideal')
+        ax[2,0].set_title(
+            r"$F_1 = (%.2f \pm %.2f)$, expected $1$" % (np.mean(fidelities_ch1), np.std(fidelities_ch1))
+        )
+        ax[2,0].set_xlabel("Fidelity")
+        ax[2,0].set_ylabel("Counts")
 
-        fig, ax = combine_axes_to_subplots([ax_1, ax_2], nrows=1, figsize=(12,3))
+        ax[2,1].hist(fidelities_ch2, bins=50, label='ch2', color="b")
+        ax[2,1].axvline(1, c="grey", linestyle='--', label='Ideal')
+        ax[2,1].set_title(
+            r"$F_2 = (%.2f \pm %.2f)$, expected $1$" % (np.mean(fidelities_ch2), np.std(fidelities_ch2))
+        )
+        ax[2,1].set_xlabel("Fidelity")
+
+        fig.suptitle((
+            r"Data for $\phi=%.2f \pi$" % (self.phase_setpoint/np.pi) + f" at {photon_timing*1e6:.0f}us w.r.t. freeze trigger, \n" +
+            f"Settings: setpoint {self.rp.pid0.setpoint:.3f}, P={self.rp.pid0.p:.3f}, I={self.rp.pid0.i:.3f}"
+        ))
         fig.tight_layout()
 
-    def plot_desired_lockpoint(self, phi_setpoint):
-        det_time_ch1_at_setpoint, det_time_ch2_at_setpoint = self._phase_to_time(phi_setpoint+2*np.pi, cal_type="det")
-        det_time_ch1_at_zero, det_time_ch2_at_zero = self.fit_result_det_calib_ch1.params['t0'].value, self.fit_result_det_calib_ch2.params['t0'].value
+        ds = xr.Dataset()
+        ds['repetition'] = np.arange(num_shots)
+        ds['ch1_detector_voltage'] = xr.DataArray(ch1_photon_data, dims=['repetition'])
+        ds['ch2_detector_voltage'] = xr.DataArray(ch2_photon_data, dims=['repetition'])
+        ds['ch1_phase'] = xr.DataArray(phases_channel1, dims=['repetition'])
+        ds['ch2_phase'] = xr.DataArray(phases_channel2, dims=['repetition'])
+        ds['ch1_fidelity'] = xr.DataArray(fidelities_ch1, dims=['repetition'])
+        ds['ch2_fidelity'] = xr.DataArray(fidelities_ch2, dims=['repetition'])
+    
+        return ds
 
-        iq_time_ch1_at_setpoint, iq_time_ch2_at_setpoint = self._phase_to_time(phi_setpoint+2*np.pi, cal_type="iq")
-        iq_time_ch1_at_zero, iq_time_ch2_at_zero = self.fit_result_iq_calib_ch1.params['t0'].value, self.fit_result_iq_calib_ch2.params['t0'].value
-
-        xlimits = (
-            0.05 / self.rp.asg0.frequency,
-            0.5 / self.rp.asg0.frequency
+    def measure_lock_accuracy(self, num_shots, photon_time_after_trigger, unlock_duration):
+        '''
+        Function that measures the locking accuracy by taking multiple shots of the detector voltages
+        and outputting the data of all repetitions.
+        '''
+        self.unlock_duration = unlock_duration
+        self.rp.pid0.reg_integral = 0
+        self.rp.scope.setup(
+            input1='in1',
+            input2='in2',
+            ch_math_active=False,
+            trigger_source="ext_positive_edge",
+            duration=unlock_duration*3,
+            trigger_delay=unlock_duration/5
         )
-        fig, ax = plt.subplots(3, 2, figsize=(15, 7), sharex=True)
-        for axis in ax.flatten():
-            axis.set_xlim(xlimits)
+        self.rp.scope.run_continuous = False
+        self.rp.scope.single()
+        curve1, curve2 = self.rp.scope.save_curve()
+        time_data = curve1.data[0]
+        unlocked_mask = np.logical_and(
+            time_data > photon_time_after_trigger - self.unlock_duration/5,
+            time_data < photon_time_after_trigger + self.unlock_duration/5
+        )
 
-        ax[0,0].plot(self.det_calib_time, self.det_calib_ch1, label='Data Ch1', c="k", alpha=0.4)
-        ax[0,0].plot(det_time_ch1_at_setpoint, self.fit_result_det_calib_ch1.eval(time=det_time_ch1_at_setpoint), "o", markersize=10, c="g")
-        ax[0,0].axhline(self.fit_result_det_calib_ch1.params['offset'].value, c='k', ls='--', lw=1)
-        ax[0,0].axvline(det_time_ch1_at_zero, c='k', ls='--', lw=1)
-        ax[0,0].set_xlim(ax[1,1].get_xlim())
-        ax[0,0].plot(np.linspace(ax[0,0].get_xlim()[0], ax[0,0].get_xlim()[1], 10000), self.fit_result_det_calib_ch1.eval(time=np.linspace(ax[0,0].get_xlim()[0], ax[0,0].get_xlim()[1], 10000)), label='Fit Ch1', c="purple")
+        ch1_data = np.zeros((int(num_shots), np.sum(unlocked_mask)))
+        ch2_data = np.zeros((int(num_shots), np.sum(unlocked_mask)))
 
-        ax[1,0].plot(self.det_calib_time, self.det_calib_ch2, label='Data Ch2', c="k", alpha=0.4)
-        ax[1,0].plot(det_time_ch2_at_setpoint, self.fit_result_det_calib_ch2.eval(time=det_time_ch2_at_setpoint), "o", markersize=10, c="g")
-        ax[1,0].axhline(self.fit_result_det_calib_ch2.params['offset'].value, c='k', ls='--', lw=1)
-        ax[1,0].axvline(det_time_ch2_at_zero, c='k', ls='--', lw=1)
-        ax[1,0].set_xlim(ax[1,1].get_xlim())
-        ax[1,0].plot(np.linspace(ax[1,0].get_xlim()[0], ax[1,0].get_xlim()[1], 10000), self.fit_result_det_calib_ch2.eval(time=np.linspace(ax[1,0].get_xlim()[0], ax[1,0].get_xlim()[1], 10000)), label='Fit Ch2', c="orange")
-        
-        ax[2,0].plot(self.det_calib_time, self.det_calib_ch1 - self.det_calib_ch2, label='Difference signal', c="k", alpha=0.4)
-        ax[2,0].plot(det_time_ch2_at_setpoint, self.fit_result_det_calib_ch1.eval(time=det_time_ch2_at_setpoint) - self.fit_result_det_calib_ch2.eval(time=det_time_ch2_at_setpoint), "o", markersize=10, c="g")
-        ax[2,0].axhline(self.fit_result_det_calib_ch1.params['offset'].value - self.fit_result_det_calib_ch2.params['offset'].value, c='k', ls='--', lw=1)
-        ax[2,0].axvline(det_time_ch2_at_zero, c='k', ls='--', lw=1)
-        ax[2,0].set_xlabel('Time (s)')
-        ax[2,0].set_xlim(ax[1,1].get_xlim())
-        ax[2,0].plot(np.linspace(ax[2,0].get_xlim()[0], ax[2,0].get_xlim()[1], 10000), self.fit_result_det_calib_ch1.eval(time=np.linspace(ax[2,0].get_xlim()[0], ax[2,0].get_xlim()[1], 10000)) - self.fit_result_det_calib_ch2.eval(time=np.linspace(ax[2,0].get_xlim()[0], ax[2,0].get_xlim()[1], 10000)), label='Fit', c="r")
-        
-        ax[0,1].plot(self.iq_calib_time, self.iq_calib_ch1, label='Data Ch1', c="k", alpha=0.4)
-        ax[0,1].plot(iq_time_ch1_at_setpoint, self.fit_result_iq_calib_ch1.eval(time=iq_time_ch1_at_setpoint), "o", markersize=10, c="g")
-        ax[0,1].axhline(self.fit_result_iq_calib_ch1.params['offset'].value, c='k', ls='--', lw=1)
-        ax[0,1].axvline(iq_time_ch1_at_zero, c='k', ls='--', lw=1)
-        ax[0,1].set_xlim(ax[1,1].get_xlim())
-        ax[0,1].plot(np.linspace(ax[0,1].get_xlim()[0], ax[0,1].get_xlim()[1], 10000), self.fit_result_iq_calib_ch1.eval(time=np.linspace(ax[0,1].get_xlim()[0], ax[0,1].get_xlim()[1], 10000)), label='Fit Ch1', c="purple")
-        
-        ax[1,1].plot(self.iq_calib_time, self.iq_calib_ch2, label='Data Ch2', c="k", alpha=0.4)
-        ax[1,1].plot(iq_time_ch2_at_setpoint, self.fit_result_iq_calib_ch2.eval(time=iq_time_ch2_at_setpoint), "o", markersize=10, c="g")
-        ax[1,1].axhline(self.fit_result_iq_calib_ch2.params['offset'].value, c='k', ls='--', lw=1)
-        ax[1,1].axvline(iq_time_ch2_at_zero, c='k', ls='--', lw=1)
-        ax[1,1].set_xlim(ax[1,1].get_xlim())
-        ax[1,1].plot(np.linspace(ax[1,1].get_xlim()[0], ax[1,1].get_xlim()[1], 10000), self.fit_result_iq_calib_ch2.eval(time=np.linspace(ax[1,1].get_xlim()[0], ax[1,1].get_xlim()[1], 10000)), label='Fit Ch2', c="orange")
-        
-        ax[2,1].set_xlabel('Time (s)')
+        for idx in tqdm(range(num_shots)):
+            self.rp.scope.single()
+            curve1, curve2 = self.rp.scope.save_curve()
+            time.sleep(0.01)
+            time_data, ch1 = curve1.data
+            _, ch2 = curve2.data
+            ch1_data[idx, :] = ch1[unlocked_mask]
+            ch2_data[idx, :] = ch2[unlocked_mask]
 
-        for axis in ax.flatten():
-            
-            axis.set_ylabel('Detector Signal (V)')
-            axis.legend(fontsize=12, loc="upper right")
+        return time_data[unlocked_mask], ch1_data, ch2_data
 
-        fig.tight_layout(h_pad=0)
+    def plot_calibrations(self):
+        __, iq_ax_1 = self.iq_model_ch1.create_calibration_plot()
+        __, iq_ax_2 = self.iq_model_ch2.create_calibration_plot()
+        __, det_ax_1 = self.det_model_ch1.create_calibration_plot()
+        __, det_ax_2 = self.det_model_ch2.create_calibration_plot()
+
+        fig, ax = combine_axes_to_subplots([iq_ax_1, iq_ax_2, det_ax_1, det_ax_2], ncols=2, nrows=2, figsize=(12,7))
+        fig.tight_layout()
 
         return fig, ax
+
 
 def combine_axes_to_subplots(axes, nrows=1, ncols=None, figsize=(10, 5)):
     """Combine a list of axes into a single figure with subplots."""

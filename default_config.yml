@@ -77,19 +77,19 @@ redpitaya:
 scope:
   curve_name: scope curve
   input1: in1
-  input2: out1
-  duration: 0.004194304
+  input2: in2
+  duration: 0.000524288
   average: false
   trigger_source: ext_positive_edge
-  trigger_delay: 0.0
+  trigger_delay: 0.00025
   threshold: 0.0
   hysteresis: 0.0
   run_continuous: true
-  math_formula: 0.095*ch1/ch1
+  math_formula: 0.13292082868382293*ch1/ch1
   rolling_mode: false
   ch1_active: true
   ch2_active: true
-  ch_math_active: true
+  ch_math_active: false
 pwm0:
   input: 'off'
 pwm1:
@@ -119,11 +119,11 @@ lockbox:
 iq1:
   acbandwidth: 3108131.4996426
   bandwidth:
+  - 607.1371904487975
   - 151.7825605610939
-  - 303.5662791444778
   input: in1
   frequency: 2499.9899324029684
-  quadrature_factor: -11337.0
+  quadrature_factor: -31894.0
   output_signal: quadrature
   gain: 0.0
   amplitude: 0.0
@@ -133,7 +133,7 @@ iq1:
   demodulation_at_2f: 'on'
 iq0:
   acbandwidth: 4857.616404670356
-  amplitude: 0.00800323486328125
+  amplitude: 0.003997802734375
   bandwidth:
   - 607.1371904487975
   - 151.7825605610939
@@ -145,26 +145,26 @@ iq0:
   output_direct: out1
   output_signal: quadrature
   phase: 0.0
-  quadrature_factor: 11.0
+  quadrature_factor: -14.0
 pid0:
   differential_mode_enabled: true
-  i: 0.750386993775815
-  input: iq1
+  i: 1.0005159917010866
+  input: iq0
   inputfilter:
-  - 0
-  - 656885.0955548416
-  - 3108131.4996426
-  max_voltage: 0.699951171875
-  min_voltage: -0.699951171875
+  - 319569.6792745179
+  - 37.94553157665012
+  - 75.89113552886508
+  max_voltage: 0.5999755859375
+  min_voltage: -0.5999755859375
   output_direct: out1
-  p: 0.0048828125
+  p: 0.0
   pause_gains: pid
   paused: false
   setpoint: 0.0
 pid1:
   differential_mode_enabled: false
   i: 0.0
-  input: iq0
+  input: iq1
   inputfilter:
   - 0
   - 0
