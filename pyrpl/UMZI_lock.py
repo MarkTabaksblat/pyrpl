@@ -253,7 +253,6 @@ class RPLockboxMZI(Pyrpl):
         ax[0,1].set_title(
             r"$V_2 = %.2f \pm %.2f$ V, expected %.2f" % (np.mean(ch2_photon_data), np.std(ch2_photon_data), self.det_model_ch2.phase_relation(phase_setpoint))
         )
-        ax[0,1].set_ylabel("Counts")
         ax[0,1].set_xlim(
             min(np.mean(ch2_photon_data), self.det_model_ch2.phase_relation(phase_setpoint)) - 0.05, 
             max(np.mean(ch2_photon_data), self.det_model_ch2.phase_relation(phase_setpoint)) + 0.05
