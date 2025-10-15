@@ -3,6 +3,7 @@ scipy
 paramiko
 pandas
 nose
+pyqt5-qt5 <=5.15.2
 pyqt5
 qtpy
 pyqtgraph
