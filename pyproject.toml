@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "lmfit>=1.3.4",
     "matplotlib>=3.10.7",
     "nose>=1.3.7",
     "numpy>=2.3.4",
@@ -18,5 +19,8 @@ dependencies = [
     "qtpy>=2.4.3",
     "scipy>=1.16.2",
     "scp>=0.15.0",
+    "tqdm>=4.67.1",
+    "xarray>=2025.10.1",
+    "yamlcore>=0.0.4",
 ]
 
