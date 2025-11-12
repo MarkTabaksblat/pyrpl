@@ -19,26 +19,28 @@ class RPLockboxMZI(Pyrpl):
         Wrapper class for a PyRPL configuration that is designed for locking an Unbalanced Mach-Zehnder Interferometer (UMZI).
         This class inherits from the Pyrpl class and provides additional functionality for setting up and calibrating the system.
     '''
-    def __init__(self, hostname, yml_file, gui=False, config_file='default_config.yml'):
+    def __init__(self, hostname, yml_file, gui=False, config_file='default_config.yml'): #Om RPLockbox te initen init je de parent class pyrpl en zet je modules op
         super().__init__(hostname=hostname, gui=gui, config=config_file)
         self._setup_all_modules(yml_file)
-        self.rp.pid1.free()
+        self.rp.pid1.free() #zorg dat je PID feedback kunt applyen via PID1
+        ##########################Waarom kun je self.rp aanroepen en niet super.rp?
+        ##########################Heeft het te maken met deze line in pyrpl.py? self.rp.parent=self
 
     def __str__(self):
         return f"RPLockboxMZI instance connected to {self.rp.hostname}"
 
-    def _setup_all_modules(self, yml_file):
+    def _setup_all_modules(self, yml_file): # laadt zet je de params van alle modules
         self._get_module_settings(yml_file)
         self._apply_settings()
 
-    def _apply_settings(self):
+    def _apply_settings(self): #of the modules
         if not hasattr(self, 'settings'):
             raise ValueError("Module settings not loaded. Please load settings first.")
         
         for module in self.settings.keys():
             getattr(self.rp, module).setup(**self.settings[module])
 
-    def _get_module_settings(self, yml_file):
+    def _get_module_settings(self, yml_file): #from the config file
         with open(yml_file, 'r') as stream:
             try:
                 self.settings = yaml.load(stream, Loader=CoreLoader)
@@ -61,6 +63,7 @@ class RPLockboxMZI(Pyrpl):
         '''
         self.phase_setpoint = phase_setpoint
 
+        #Here we calculate what quadrature factors we need to get the right phase setpoint in sin(phi - phi_set) out of out_IQ0 + out_IQ1
         new_quadrature_factor_iq0 = - np.cos(phase_setpoint) * self.iq_calib_gain_ch1 / (self.iq_model_ch1.fit_result.params[self.iq_model_ch1.prefix+'amp'].value)
         new_quadrature_factor_iq1 = np.sin(phase_setpoint) * self.iq_calib_gain_ch2 / (self.iq_model_ch2.fit_result.params[self.iq_model_ch2.prefix+'amp'].value)
 
@@ -72,57 +75,68 @@ class RPLockboxMZI(Pyrpl):
         elif abs(new_quadrature_factor_iq1) < 1e-5:
             self.rp.iq0.setup(quadrature_factor=new_quadrature_factor_iq0)
             self.rp.iq1.setup(quadrature_factor = 0)
-        else:
+        else: #set the quadrature factors we calculated above
             self.rp.iq0.setup(quadrature_factor=new_quadrature_factor_iq0)
             self.rp.iq1.setup(quadrature_factor=new_quadrature_factor_iq1)
 
-        self.rp.pid0.setup(setpoint=0, input="iq0", differential_mode_enabled=True)
-        self.rp.pid1.setup(input="iq1", output_direct='off')
+        #differential_mode_enabled ==> you set the inputof PID0  to prvsly input PID0 - PID1
+        self.rp.pid0.setup(setpoint=0, input="iq0", differential_mode_enabled=True) #Why should we not set the output? Which port is it? 
+        self.rp.pid1.setup(input="iq1", output_direct='off') #of course then PID1 should not be doing anything!
         self.rp.iq0.setup(output_direct="out1")
 
-    def start_locking(self, phase_setpoint=None):
+    def start_locking(self, phase_setpoint=None): 
         '''
         Function to start the locking process. This function turns on the PID loop, turns off all ASG outputs and configures
         the scope to give a graphical clue for fine-adjusting the locking parameters.
+
+        COULD YOU ALSO JUST LOAD A CONFIG FILE HERE? 
+
         '''
-        if phase_setpoint is not None:
+        if phase_setpoint is not None: #check if you have set a phase setpoint
             self.setup_locking(phase_setpoint)
-        else:
+        else: ##############################Why do you still need the assert statement here? 
             assert hasattr(self, 'phase_setpoint'), "Phase setpoint not defined. Please call setup_locking() first."
 
         self.rp.asg0.setup(output_direct='off')
         self.rp.asg1.setup(output_direct='off')
-        self.rp.pid0.setup(output_direct='out1')
-        self.rp.iq0.setup(output_direct='out1')
+        self.rp.pid0.setup(output_direct='out2') #Here I changed to out2 from out1!!!!!!!
+        self.rp.iq0.setup(output_direct='out2') #Here I changed to out2 from out1!!!!!!!
         self.rp.iq1.setup(output_direct='off')
         self.rp.scope.setup(
             input1="in1",
-            input2="in2",
+            input2="out2",  #Here I changed from in2 to out2 since I am using a differential PD
+                            #So I can also look at the output (in1 is now 'unconnected')
             ch_math_active=True,
             math_formula=f"{self.det_model_ch1.phase_relation(self.phase_setpoint)}*ch1/ch1",
             trigger_source="ext_positive_edge",
-            duration = 10 / self.rp.iq0.frequency,
-            run_continuous=True,
+            duration = 10 / self.rp.iq0.frequency, #10 modulation oscillations happen in this time. 
+            ##############################Is there a good reason for this number?##############################
+            run_continuous=True, 
             rolling_mode=False,
             trigger_delay=0.0
         )
-        self.rp.iq0.synchronize_iqs()
-        self.rp.pid0.reg_integral = 0
+        self.rp.iq0.synchronize_iqs() #This should not matter; it aligns the phase of the cos (which we dont use) and the sin signal used for demodulation
+        self.rp.pid0.reg_integral = 0 #Set integral value of feedback to 0
 
     def take_calibration_data(self):
         '''
         Execution of all the required steps to take the calibration data, both for the detector voltages
         as well as the IQ channels.
+
+        It turns off the PID feedback, sets the scope, and synchronizes iqs
+
+        AGAIN, CONFIG FILE??? 
+
         '''
         ##########################
         #      IQ channels       #
         ##########################
-        self.rp.asg0.setup(output_direct='out1', waveform='ramp', amplitude=0.08, frequency=10)
+        self.rp.asg0.setup(output_direct='out1', waveform='ramp', amplitude=0.08, frequency=10) #create a phi_env ~ t to see cos(At)
         self.rp.scope.setup(
             input1='iq0',
             input2='iq1',
             ch_math_active=True, 
-            math_formula='ch1-ch2', 
+            #math_formula='ch1-ch2', #I don't see why we need this
             trigger_source='asg0', 
             duration=1/(self.rp.asg0.frequency), 
             trigger_delay = 1/(2*self.rp.asg0.frequency),
@@ -132,31 +146,31 @@ class RPLockboxMZI(Pyrpl):
         self.rp.iq0.setup(output_direct='out1', quadrature_factor=self.settings['iq0']['quadrature_factor'])
         self.rp.iq1.setup(quadrature_factor=self.settings['iq1']['quadrature_factor'])
         self.rp.pid0.setup(output_direct='off')
-        self.rp.iq2.setup(output_direct='off', input="in2")
-        self.rp.iq0.synchronize_iqs()
+        self.rp.iq2.setup(output_direct='off', input="off") #I changed this from in2 to off because we have the differential photodiode
+        #self.rp.iq0.synchronize_iqs() #again, I don't think this will do anything. 
 
 
         ##########################
         #   Detector channels    #
         ##########################
-        self.rp.scope.single()
-        iq_calib_data_ch1, iq_calib_data_ch2 = self.rp.scope.save_curve()
+        self.rp.scope.single() #Take the sin and the cos from the scope
+        iq_calib_data_ch1, iq_calib_data_ch2 = self.rp.scope.save_curve() # iq_calib_data_ch1 = sin, iq_calib_data_ch1 = cos 
         self.rp.scope.setup(
             input1='in1',
             input2='in2',
             ch_math_active=True, 
-            math_formula='ch1-ch2', 
+            #math_formula='ch1-ch2', 
             trigger_source='asg0', 
-            duration=2/(self.rp.asg0.frequency),
-            trigger_delay = 1/(2*self.rp.asg0.frequency)
+            duration=2/(self.rp.asg0.frequency),   #Here you see two oscillations (no, I think four) of the sin and cos
+            trigger_delay = 1/(2*self.rp.asg0.frequency) #####################################WHY THIS TRIGGER DELAY????
         )
-        self.rp.iq0.setup(output_direct='off')
-        self.rp.scope.single()
+        self.rp.iq0.setup(output_direct='off') ###################WHY ARE WE DOING THIS?
+        self.rp.scope.single() ###################WHY ARE WE DOING THIS?
 
         # Data saving is done after taking both singles to minimize the time between the two measurements,
         # thereby minimizing the drift of the phase.
-        iq_calib_data_time, iq_calib_data_ch1 = iq_calib_data_ch1.data
-        _, iq_calib_data_ch2 = iq_calib_data_ch2.data
+        iq_calib_data_time, iq_calib_data_ch1 = iq_calib_data_ch1.data #iq_calib_data_ch1 = sin, iq_calib_data_time = t
+        _, iq_calib_data_ch2 = iq_calib_data_ch2.data #iq_calib_data_ch1 = cos
         det_calib_data_ch1, det_calib_data_ch2 = self.rp.scope.save_curve()
         det_calib_data_time, det_calib_data_ch1 = det_calib_data_ch1.data
         _, det_calib_data_ch2 = det_calib_data_ch2.data
