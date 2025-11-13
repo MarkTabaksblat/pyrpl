@@ -3,49 +3,63 @@ import matplotlib.pyplot as plt
 from lmfit.models import Model, update_param_vals
 
 
-class UMZIModel(Model):
+#Why make a class out of this instead of just calling the functions where you are doing the fitting?
+
+class UMZIModel(Model):  #A parent class of the cos_model and sin_model, and that is all I think...
     def __init__(self, func, cal_type):
         super().__init__(func)
-        self.cal_type = cal_type
-        self.other_model = None
+        self.cal_type = cal_type #are we fitting iq or det
+        self.other_model = None #not sure what this is used for yet
 
-    def guess(self, data, time, **kwargs):
+    def guess(self, data, time, **kwargs): #This function sets the params of it's parent the Model depending on the variable cal_type of the parent
+                                            #We can delete the time argument
+        """ I changed this to below
         if self.cal_type == "iq":
             amp_neg = self.channel == 1
         elif self.cal_type == "det":
-            amp_neg = self.channel == 1
+            amp_neg = self.channel == 1 ###########################What is det????????????????????????????????????
+        """ 
+        if self.cal_type == "iq" or self.cal_type == "det": #If we are either fitting the iq or the det, then we set amp_neg to 
+                                                            #True if channel is 1
+            amp_neg = self.channel == 1                     #I CANNOT FIND ANYTHING ABOUT CHANNEL IN THE MODEL OR THIS CLASS??????????
             
-        if amp_neg:
-            self.set_param_hint("amp", value=np.min(data) - np.mean(data), vary=True, max=-0.1)
+        #WHY DOES A CHANNEL = 1 CALL FOR A NEGATIVE AMPLITUDE??? 
+        if amp_neg: #If we are either fitting iq or det, and channel == 1, then we set the first guess for the amplitude of the model as: 
+            self.set_param_hint("amp", value=np.min(data) - np.mean(data), vary=True, max=-0.1) 
         else:
             self.set_param_hint("amp", value=np.max(data) - np.mean(data), vary=True, min=0.1)
         
-        if self.cal_type == "iq":
+        if self.cal_type == "iq": #set the offset for the iq model, of course we want it to be zero for iq
             self.set_param_hint("offset", value=0, min=-0.3, max=0.3, vary=True)
         else:
             self.set_param_hint("offset", value=np.max(data)/2, min=-1, max=1, vary=True)
 
         # self.set_param_hint("V_pi", value=0.13, min=0, max=1, vary=True)
-        self.set_param_hint("V_pi", value=0.009, min=0.001, max=0.1, vary=True)
+        self.set_param_hint("V_pi", value=0.009, min=0.001, max=0.1, vary=True) #What is this V_pi? 
         self.set_param_hint("phase", value=0, min=-2*np.pi, max=2*np.pi, vary=True)
 
         params = self.make_params()
-        return update_param_vals(params, self.prefix, **kwargs)
+        return update_param_vals(params, self.prefix, **kwargs) #(inhereted) function of the class to set the param guesses according to the hints
 
-    def perform_fit(self, data, params, time):
+    def perform_fit(self, data, params, time): #Fit the model to the data
+
+        #Fit the data parsed. Perhaps right before this is called, they call a guess function, but I would call it here!!!!!!!!!!!!!!!!!!!!!!!
         self.fit_result = self.fit(data, params, time=time, max_nfev=10_000, fit_kws={"ftol": 1e-100, "xtol": 1e-100, "gtol": 1e-100, "epsfcn": 1e-100})
 
+        #Get the values of the optimal params from the fit done one line above
         self.amp_fit = self.fit_result.params[self.prefix+"amp"].value
         self.offset_fit = self.fit_result.params[self.prefix+"offset"].value
         self.phase_fit = self.fit_result.params[self.prefix+"phase"].value
         self.V_pi_fit = self.fit_result.params[self.prefix+"V_pi"].value
 
-        self.phase = self.get_phase_from_time(time)
-        self.phase -= 2*np.pi * (np.max(self.phase)//(2*np.pi))
+        self.phase = self.get_phase_from_time(time) #function defined below
+        self.phase -= 2*np.pi * (np.max(self.phase)//(2*np.pi)) #Get the phase within 0 to 2 pi
+        #Why is phase an array??? 
+
         self.time_data = time
         self.signal_data = data
 
-        if self.cal_type == "iq":
+        if self.cal_type == "iq": #?????????????????????????????????????????????????????????????????????????
             self.phi_prime = self.phase_fit - self.other_model.phase_fit
     
     def lock_phase_guess(self, params, other_model, **kwargs):
@@ -62,7 +76,7 @@ class UMZIModel(Model):
         )
         return update_param_vals(params, self.prefix, **kwargs)
     
-    def get_phase_from_time(self, time):
+    def get_phase_from_time(self, time):  #does this return an aray?? 
         modulation = time
         return np.pi/self.V_pi_fit * modulation + self.phase_fit
     
@@ -115,14 +129,14 @@ class SineModel(UMZIModel):
         self.channel = channel
         self.fit_func_str = "sin"
 
-    def evaluate(self, time, amp, offset, V_pi, phase):
+    def evaluate(self, time, amp, offset, V_pi, phase):  #What does this function do??
         # modulation = np.cos(2*np.pi*freq*time+t0)
         modulation = time
         actual_modulation_phase = np.pi/V_pi * modulation
 
         return amp * np.sin(actual_modulation_phase + phase) + offset
     
-    def phase_relation(self, phase=None, amp=None, offset=None):
+    def phase_relation(self, phase=None, amp=None, offset=None): #What does this function do??
         if phase is None and self.phase is not None:
             phase = self.phase
         if amp is None and self.amp_fit is not None:

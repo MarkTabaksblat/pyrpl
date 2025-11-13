@@ -64,6 +64,8 @@ class RPLockboxMZI(Pyrpl):
         self.phase_setpoint = phase_setpoint
 
         #Here we calculate what quadrature factors we need to get the right phase setpoint in sin(phi - phi_set) out of out_IQ0 + out_IQ1
+        #With iq_calib_gain_ch1 and 2 which whic
+        #There is a 0->1 and 1-> 2 'issue' because the iq works with 0 and 1 but the scope works wiht ch1 and ch2
         new_quadrature_factor_iq0 = - np.cos(phase_setpoint) * self.iq_calib_gain_ch1 / (self.iq_model_ch1.fit_result.params[self.iq_model_ch1.prefix+'amp'].value)
         new_quadrature_factor_iq1 = np.sin(phase_setpoint) * self.iq_calib_gain_ch2 / (self.iq_model_ch2.fit_result.params[self.iq_model_ch2.prefix+'amp'].value)
 
@@ -80,7 +82,12 @@ class RPLockboxMZI(Pyrpl):
             self.rp.iq1.setup(quadrature_factor=new_quadrature_factor_iq1)
 
         #differential_mode_enabled ==> you set the inputof PID0  to prvsly input PID0 - PID1
-        self.rp.pid0.setup(setpoint=0, input="iq0", differential_mode_enabled=True) #Why should we not set the output? Which port is it? 
+        self.rp.pid0.setup(setpoint=0, input="iq0", differential_mode_enabled=True) 
+        #WHY DO WE TURN ON THE DIFFERENTIAL MODE??????????????????????????????????????????????????????????????????????????????????????????????
+        #WHY DO WE TURN ON THE PID FEEBACK??????????????
+        
+        
+        
         self.rp.pid1.setup(input="iq1", output_direct='off') #of course then PID1 should not be doing anything!
         self.rp.iq0.setup(output_direct="out1")
 
@@ -157,12 +164,13 @@ class RPLockboxMZI(Pyrpl):
         iq_calib_data_ch1, iq_calib_data_ch2 = self.rp.scope.save_curve() # iq_calib_data_ch1 = sin, iq_calib_data_ch1 = cos 
         self.rp.scope.setup(
             input1='in1',
-            input2='in2',
+            #input2='in2',
+            input2 = 'in2', #WE MIGHT HAVE A PROBLEM HERE, BECAUSE WE ARE SAVING BOTH DATAS
             ch_math_active=True, 
             #math_formula='ch1-ch2', 
             trigger_source='asg0', 
             duration=2/(self.rp.asg0.frequency),   #Here you see two oscillations (no, I think four) of the sin and cos
-            trigger_delay = 1/(2*self.rp.asg0.frequency) #####################################WHY THIS TRIGGER DELAY????
+            trigger_delay = 1/(2*self.rp.asg0.frequency), #####################################WHY THIS TRIGGER DELAY????
         )
         self.rp.iq0.setup(output_direct='off') ###################WHY ARE WE DOING THIS?
         self.rp.scope.single() ###################WHY ARE WE DOING THIS?
@@ -171,27 +179,35 @@ class RPLockboxMZI(Pyrpl):
         # thereby minimizing the drift of the phase.
         iq_calib_data_time, iq_calib_data_ch1 = iq_calib_data_ch1.data #iq_calib_data_ch1 = sin, iq_calib_data_time = t
         _, iq_calib_data_ch2 = iq_calib_data_ch2.data #iq_calib_data_ch1 = cos
-        det_calib_data_ch1, det_calib_data_ch2 = self.rp.scope.save_curve()
-        det_calib_data_time, det_calib_data_ch1 = det_calib_data_ch1.data
-        _, det_calib_data_ch2 = det_calib_data_ch2.data
+
+        #What does det stand for???
+        det_calib_data_ch1, det_calib_data_ch2 = self.rp.scope.save_curve() 
+        det_calib_data_time, det_calib_data_ch1 = det_calib_data_ch1.data #det_calib_data_ch1 = the output of the first photodiode
+        _, det_calib_data_ch2 = det_calib_data_ch2.data #det_calib_data_ch2 = the output of the second photodiode
 
         # Condition for masking the part of the ramp that is far enough from the kinks
         # to get proper cosine/sine fits.
+        # This is really nice, but wait, why do we then even save data over the course of multiple ramp kinks? 
         time_filter_cond_iq = np.logical_and(
-            iq_calib_data_time > 0.1 / self.rp.asg0.frequency,
-            iq_calib_data_time < 0.5 / self.rp.asg0.frequency
+            iq_calib_data_time > 0.1 / self.rp.asg0.frequency, 
+            iq_calib_data_time < 0.5 / self.rp.asg0.frequency #Why do we get so close to the peak? Why not 0.4
         )
         time_filter_cond_det = np.logical_and(
             det_calib_data_time > 0.1 / self.rp.asg0.frequency,
-            det_calib_data_time < 0.5 / self.rp.asg0.frequency
+            det_calib_data_time < 0.5 / self.rp.asg0.frequency #Why do we get so close to the peak? Why not 0.4
         )
-        self.iq_calib_time = iq_calib_data_time[time_filter_cond_iq]
-        self.iq_calib_ch1, self.iq_calib_ch2 = iq_calib_data_ch1[time_filter_cond_iq], iq_calib_data_ch2[time_filter_cond_iq]
-        self.det_calib_time = det_calib_data_time[time_filter_cond_det]
+        self.iq_calib_time = iq_calib_data_time[time_filter_cond_iq] #Here we take the time array and only include the comps far from the kinks
+        self.iq_calib_ch1, self.iq_calib_ch2 = iq_calib_data_ch1[time_filter_cond_iq], iq_calib_data_ch2[time_filter_cond_iq] #same for the sin & cos
+        
+        #And here we do the same as above, but then for the two signals of the PDs. 
+        self.det_calib_time = det_calib_data_time[time_filter_cond_det] 
         self.det_calib_ch1, self.det_calib_ch2 = det_calib_data_ch1[time_filter_cond_det], det_calib_data_ch2[time_filter_cond_det]
 
         # Save the quadrature factors for both calibrations to later calculate the required
         # magnitudes of the IQ outputs to lock the interferometer at a given phase setpoint.
+
+        # I DON'T UNDERSTAND, VARIABLES ARE MADE HERE AND USED IN THE FUNCTION setup_locking. Why do we set them equal to the iq settings?
+        # at this point we have not done any fitting yet.  
         self.iq_calib_gain_ch1, self.iq_calib_gain_ch2 = self.rp.iq0.quadrature_factor, self.rp.iq1.quadrature_factor
 
     def fit_calibration_data(self):
@@ -200,7 +216,7 @@ class RPLockboxMZI(Pyrpl):
         which are lmfit.Model subclasses. These custom models are used to fit the calibration data
         and extract the required parameters for locking the interferometer.
         '''
-        self.det_model_ch1 = CosineModel("det", 1)
+        self.det_model_ch1 = CosineModel("det", 1)                #####################What is thsi det popping up??????????????????????????
         self.det_model_ch2 = CosineModel("det", 2)
         self.iq_model_ch1 = SineModel("iq", 1)
         self.iq_model_ch2 = CosineModel("iq", 2)
@@ -219,7 +235,7 @@ class RPLockboxMZI(Pyrpl):
         self.iq_model_ch1.perform_fit(self.iq_calib_ch1, iq_params_ch1, time=self.iq_calib_time)
         self.iq_model_ch2.perform_fit(self.iq_calib_ch2, iq_params_ch2, time=self.iq_calib_time)
 
-    def unlock(self):
+    def unlock(self): #############################Why do you not turn off the IQ modulation?????????????????????????????????????????????????
         ''' Stop the PID loop and turn off all outputs.'''
         self.rp.pid0.setup(output_direct='off')
         self.rp.asg1.setup(output_direct='off')
