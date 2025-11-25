@@ -140,3 +140,7 @@ run_pyrpl_in_notebook.ipynb
 f_around.ipynb
 
 TODO.md
+
+.venv/
+
+module_test.ipynb
