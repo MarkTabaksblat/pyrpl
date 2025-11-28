@@ -19,6 +19,7 @@ class RPLockboxMZI(Pyrpl):
         Wrapper class for a PyRPL configuration that is designed for locking an Unbalanced Mach-Zehnder Interferometer (UMZI).
         This class inherits from the Pyrpl class and provides additional functionality for setting up and calibrating the system.
     '''
+    #config_file is for starting up and saving the data, yml file is for setting up the modules
     def __init__(self, hostname, yml_file, gui=False, config_file='default_config.yml'): #Om RPLockbox te initen init je de parent class pyrpl en zet je modules op
         super().__init__(hostname=hostname, gui=gui, config=config_file)
         self._setup_all_modules(yml_file)
@@ -96,7 +97,7 @@ class RPLockboxMZI(Pyrpl):
         Function to start the locking process. This function turns on the PID loop, turns off all ASG outputs and configures
         the scope to give a graphical clue for fine-adjusting the locking parameters.
 
-        COULD YOU ALSO JUST LOAD A CONFIG FILE HERE? 
+        COULD YOU ALSO JUST LOAD A CONFIG FILE HERE? I think he loads the data that he takes from the yml file in the init function
 
         '''
         if phase_setpoint is not None: #check if you have set a phase setpoint
@@ -429,3 +430,4 @@ def combine_axes_to_subplots(axes, nrows=1, ncols=None, figsize=(10, 5)):
 
 if __name__ == "__main__":
     obj = RPLockboxMZI(hostname="10.135.71.245", gui=True, config_file='travis_global_config', yml_file='lockbox_config.yml')
+    #What does this do?????? 

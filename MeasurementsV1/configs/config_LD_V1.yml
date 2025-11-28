@@ -1,0 +1,168 @@
+pyrpl:
+  background_color: ''
+  dock_positions: "\0\0\0\xFF\0\0\0\0\xFD\0\0\0\x01\0\0\0\x02\0\0\a:\0\0\x03\xCE\xFC\
+    \x01\0\0\0\x01\xFC\0\0\0\0\0\0\a:\0\0\0{\0\xFF\xFF\xFF\xFA\0\0\0\x03\x01\0\0\0\
+    \r\xFB\0\0\0&\0a\0s\0g\0s\0 \0(\0c\0o\0n\0f\0i\0g\0_\02\07\0n\0o\0v\0)\x01\0\0\
+    \0\0\xFF\xFF\xFF\xFF\0\0\0Y\0\xFF\xFF\xFF\xFB\0\0\0$\0i\0q\0s\0 \0(\0c\0o\0n\0\
+    f\0i\0g\0_\02\07\0n\0o\0v\0)\x01\0\0\0\0\xFF\xFF\xFF\xFF\0\0\0Y\0\xFF\xFF\xFF\xFB\
+    \0\0\0&\0p\0i\0d\0s\0 \0(\0c\0o\0n\0f\0i\0g\0_\02\07\0n\0o\0v\0)\x01\0\0\0\0\xFF\
+    \xFF\xFF\xFF\0\0\0Y\0\xFF\xFF\xFF\xFB\0\0\0*\0s\0c\0o\0p\0e\0s\0 \0(\0c\0o\0n\0\
+    f\0i\0g\0_\02\07\0n\0o\0v\0)\x01\0\0\0\0\xFF\xFF\xFF\xFF\0\0\0Y\0\xFF\xFF\xFF\xFB\
+    \0\0\0&\0i\0i\0r\0s\0 \0(\0c\0o\0n\0f\0i\0g\0_\02\07\0n\0o\0v\0)\0\0\0\0\0\xFF\
+    \xFF\xFF\xFF\0\0\0\x13\0\xFF\xFF\xFF\xFB\0\0\0(\0t\0r\0i\0g\0s\0 \0(\0c\0o\0n\0\
+    f\0i\0g\0_\02\07\0n\0o\0v\0)\0\0\0\0\0\xFF\xFF\xFF\xFF\0\0\0\x13\0\xFF\xFF\xFF\
+    \xFB\0\0\0&\0p\0w\0m\0s\0 \0(\0c\0o\0n\0f\0i\0g\0_\02\07\0n\0o\0v\0)\0\0\0\0\0\
+    \xFF\xFF\xFF\xFF\0\0\0\x13\0\xFF\xFF\xFF\xFB\0\0\0$\0h\0k\0s\0 \0(\0c\0o\0n\0\
+    f\0i\0g\0_\02\07\0n\0o\0v\0)\0\0\0\0\0\xFF\xFF\xFF\xFF\0\0\0\x13\0\xFF\xFF\xFF\
+    \xFB\0\0\0<\0n\0e\0t\0w\0o\0r\0k\0a\0n\0a\0l\0y\0z\0e\0r\0 \0(\0c\0o\0n\0f\0i\0\
+    g\0_\02\07\0n\0o\0v\0)\0\0\0\0\0\xFF\xFF\xFF\xFF\0\0\0\x13\0\xFF\xFF\xFF\xFB\0\
+    \0\0>\0s\0p\0e\0c\0t\0r\0u\0m\0a\0n\0a\0l\0y\0z\0e\0r\0 \0(\0c\0o\0n\0f\0i\0g\0\
+    _\02\07\0n\0o\0v\0)\0\0\0\0\0\xFF\xFF\xFF\xFF\0\0\0\x13\0\xFF\xFF\xFF\xFB\0\0\0\
+    4\0c\0u\0r\0v\0e\0v\0i\0e\0w\0e\0r\0 \0(\0c\0o\0n\0f\0i\0g\0_\02\07\0n\0o\0v\0\
+    )\0\0\0\0\0\xFF\xFF\xFF\xFF\0\0\0\x13\0\xFF\xFF\xFF\xFB\0\0\04\0p\0y\0r\0p\0l\0\
+    c\0o\0n\0f\0i\0g\0 \0(\0c\0o\0n\0f\0i\0g\0_\02\07\0n\0o\0v\0)\0\0\0\0\0\xFF\xFF\
+    \xFF\xFF\0\0\0\x13\0\xFF\xFF\xFF\xFB\0\0\0,\0l\0o\0c\0k\0b\0o\0x\0 \0(\0c\0o\0\
+    n\0f\0i\0g\0_\02\07\0n\0o\0v\0)\0\0\0\0\0\xFF\xFF\xFF\xFF\0\0\0\x13\0\xFF\xFF\xFF\
+    \0\0\a:\0\0\0\0\0\0\0\x04\0\0\0\x04\0\0\0\b\0\0\0\b\xFC\0\0\0\0"
+  loglevel: info
+  modules:
+  - NetworkAnalyzer
+  - SpectrumAnalyzer
+  - CurveViewer
+  - PyrplConfig
+  - Lockbox
+  name: config_27nov
+  window_position:
+  - 70
+  - 27
+  - 1850
+  - 1016
+redpitaya:
+  autostart: true
+  defaultport: 2222
+  delay: 0.05
+  filename: /home/EUD002691/Documents/pyrpl/pyrpl/fpga/red_pitaya.bin
+  frequency_correction: 1.0
+  gui: false
+  hostname: 172.16.20.41
+  leds_off: true
+  monitor_server_name: monitor_server
+  password: root
+  port: 2222
+  reloadfpga: true
+  reloadserver: false
+  serverbinfilename: fpga.bin
+  serverdirname: //opt//pyrpl//
+  silence_env: false
+  sshport: 22
+  timeout: 1
+  user: root
+scope:
+  curve_name: scope curve
+  duration: 0.536870912
+  run_continuous: false
+  trigger_source: asg0
+  input2: iq1
+  input1: iq0
+  ch_math_active: false
+  math_formula: ch1 * ch2
+  rolling_mode: true
+pwm0:
+  input: 'off'
+pwm1:
+  input: 'off'
+networkanalyzer:
+  curve_name: networkanalyzer curve
+spectrumanalyzer:
+  curve_name: spectrumanalyzer curve
+lockbox:
+  sequence:
+  - outputs: {}
+asg0:
+  frequency: 10.011717677116394
+  output_direct: 'off'
+  trigger_source: immediately
+  waveform: halframp
+  amplitude: 0.800048828125
+iq0:
+  acbandwidth: 1214.2929101024397
+  amplitude: 0.0500030517578125
+  bandwidth:
+  - 9716.419185321407
+  - 9716.419185321407
+  frequency: 100000.00474974513
+  output_direct: out2
+  quadrature_factor: 20.0
+iq1:
+  acbandwidth: 1214.2929101024397
+  bandwidth:
+  - 1214.2929101024397
+  - 1214.2929101024397
+  demodulation_at_2f: 'on'
+  quadrature_factor: 1600.0
+  frequency: 100000.00474974513
+iq_states:
+  IQ027nov:
+    acbandwidth: 9716.419185321407
+    amplitude: 0.01999664306640625
+    bandwidth:
+    - 9716.419185321407
+    - 9716.419185321407
+    demodulation_at_2f: 'off'
+    frequency: 100000.00474974513
+    gain: 0.0
+    input: in1
+    modulation_at_2f: 'off'
+    output_direct: out2
+    output_signal: quadrature
+    phase: 0.0
+    quadrature_factor: 4.0
+  IQ127nov:
+    acbandwidth: 1214.2929101024397
+    amplitude: 0.0
+    bandwidth:
+    - 4857.616404670356
+    - 4857.616404670356
+    demodulation_at_2f: 'on'
+    frequency: 0.0
+    gain: 0.0
+    input: in1
+    modulation_at_2f: 'off'
+    output_direct: 'off'
+    output_signal: quadrature
+    phase: 0.0
+    quadrature_factor: 300.0
+asg_states:
+  ASG27nov:
+    amplitude: 1.0
+    cycles_per_burst: 0
+    frequency: 100.000761449337
+    offset: 0.0
+    output_direct: out2
+    start_phase: 0.0
+    trigger_source: immediately
+    waveform: ramp
+pid0:
+  differential_mode_enabled: false
+  i: 1.0005159917010866
+  input: iq0
+  max_voltage: 0.9000244140625
+  min_voltage: -0.9000244140625
+  output_direct: out2
+  p: 0.050048828125
+  pause_gains: pid
+  paused: true
+asg1:
+  amplitude: 0.5
+  frequency: 0.23283064365386963
+  output_direct: 'off'
+  trigger_source: immediately
+  waveform: sin
+pid1:
+  differential_mode_enabled: false
+  i: 0.5002579958505433
+  input: iq1
+  output_direct: out2
+  p: 0.10009765625
+  pause_gains: pid
+  paused: true
