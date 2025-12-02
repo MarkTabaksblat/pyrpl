@@ -139,7 +139,7 @@ class RPLockboxMZI(Pyrpl):
         ##########################
         #      IQ channels       #
         ##########################
-        self.rp.asg0.setup(output_direct='out1', waveform='ramp', amplitude=0.08, frequency=10) #create a phi_env ~ t to see cos(At)
+        self.rp.asg0.setup(output_direct='out2', waveform='ramp', amplitude=0.8, frequency=10) #create a phi_env ~ t to see cos(At)
         self.rp.scope.setup(
             input1='iq0',
             input2='iq1',
@@ -150,7 +150,7 @@ class RPLockboxMZI(Pyrpl):
             trigger_delay = 1/(2*self.rp.asg0.frequency),
             rolling_mode=False,
         )
-
+        print("compile test")
         self.rp.iq0.setup(output_direct='out1', quadrature_factor=self.settings['iq0']['quadrature_factor'])
         self.rp.iq1.setup(quadrature_factor=self.settings['iq1']['quadrature_factor'])
         self.rp.pid0.setup(output_direct='off')

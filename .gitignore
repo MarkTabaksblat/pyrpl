@@ -144,3 +144,5 @@ TODO.md
 .venv/
 
 module_test.ipynb
+
+pyrpl/MeasurementsV1/drift_data/*
