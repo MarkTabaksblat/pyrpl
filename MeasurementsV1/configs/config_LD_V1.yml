@@ -62,7 +62,7 @@ scope:
   duration: 1.073741824
   run_continuous: false
   trigger_source: immediately
-  input2: pid0
+  input2: iq1
   input1: iq0
   ch_math_active: false
   math_formula: ch1 * ch2
@@ -157,7 +157,7 @@ pid0:
   output_direct: out2
   p: 0.050048828125
   pause_gains: pid
-  paused: true
+  paused: false
 pid1:
   differential_mode_enabled: false
   i: 0.5002579958505433

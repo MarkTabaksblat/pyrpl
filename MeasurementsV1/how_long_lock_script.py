@@ -1,9 +1,10 @@
 import os
 import sys
+import time
+from datetime import datetime
 
 import numpy as np
-import matplotlib.pyplot as plt 
-import time
+import matplotlib.pyplot as plt
 
 
 parentpath = os.path.dirname(os.getcwd())
@@ -13,110 +14,163 @@ import pyrpl
 from pyrpl.async_utils import sleep
 from datetime import datetime
 
-FPGAsource = os.path.join(os.path.abspath(parentpath), 'pyrpl','fpga', 'red_pitaya.bin')
-configfilename = 'config_LD_V1.yml'
-CONFIGsource = os.path.join(os.path.abspath(os.getcwd()), 'configs', configfilename)
+class DriftMeasurement:
+    """Encapsulate drift measurement configuration and actions.
 
-p = pyrpl.Pyrpl(config=CONFIGsource, filename=FPGAsource, gui = False)
-p.rp.asg0.output_direct = 'off'  # direct output to troublehsoot
-
-s = p.rp.scope
-
-def save_drift_data(res, t, T, delay, foldername = "", base_folder="drift_data"):
-    """
-    Save drift measurement result (res, t) and plot into a new subfolder.
-    Also store delay and T in params.txt if the folder is newly created.
+    Attributes:
+        parent_path: base path to the repo (auto-detected by default)
+        config_filename: name of the YAML config in ./configs
+        fpga_filename: relative path from parent_path to FPGA binary
+        base_folder: where to save measurement output
+        T: acquisition duration (s)
+        delay: delay between unlocking and measurement (s)
+        max_tries: maximum attempts to acquire lock
     """
 
-    # 1. Create main directory if missing
-    if not os.path.exists(base_folder):
-        os.makedirs(base_folder)
+    def __init__(self,
+                 config_filename='config_LD_V1.yml',
+                 fpga_filename=os.path.join('pyrpl', 'fpga', 'red_pitaya.bin'),
+                 gui=False,
+                 base_folder='drift_data',
+                 T=1.0,
+                 delay=0.1,
+                 max_tries=80,
+                 threshold=0.02,
+                 subfolder = None):
+        self.folderpath = os.getcwd()
+        self.parentfolder_path = os.path.dirname(self.folderpath)
+        self.config_filename = config_filename
+        self.config_source = os.path.join(self.folderpath, 'configs', self.config_filename)
 
-    # 2. Create a new timestamped subfolder
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    if foldername == "": 
-        foldername = f"run_{timestamp}"
-    folder = os.path.join(base_folder, foldername)
-    os.makedirs(folder)
+        self.folder = None
+        self.subfolder = subfolder
 
-    # 3. Save numerical data
-    np.save(os.path.join(folder, "res.npy"), res)
-    np.save(os.path.join(folder, "t.npy"), t)
+        self.fpga_source = os.path.join(self.parentfolder_path, *fpga_filename.split(os.sep))
+        
 
-    # 4. Save the plot
-    plt.savefig(os.path.join(folder, "plot.png"), dpi=300)
+        self.T = T
+        self.delay = delay
+        self.base_folder = base_folder
+        self.max_tries = max_tries
+        self.threshold = threshold
 
-    # 5. Create and save parameters (always for a new run)
-    with open(os.path.join(folder, "params.txt"), "w") as f:
-        f.write(f"delay = {delay}\n")
-        f.write(f"T = {T}\n")
+        # Initialize hardware interface
+        self.p = pyrpl.Pyrpl(config=self.config_source, filename=self.fpga_source, gui=gui)
 
-    print(f"Saved drift data to: {folder}")
-    return folder
+        self.s = self.p.rp.scope
 
-def take_curve_and_plot(fut, T, delay, abs = False, label = ""): 
-    T_left = 2 * T - delay
-    #res = s.single(timeout=None)  # blocking call
-    sleep(T_left)  # wait for acquisition to complete
-    print("Curve ready:", s.curve_ready())
-    res = fut.result()  # blocking call
-    ch1 = res[0] # channel 1 data
-    ch2 = res[1] # channel 2 data
-    t = np.array(s.times)
-    #t = t - t[0]  # zero time axis
-    if abs:
-        ch1 = np.abs(ch1)
-    plt.plot(t, ch1, label = label + 'iq0')
-    plt.plot(t, ch2, label = label + 'pid0')
-    plt.xlabel('Time [s]')
-    plt.ylabel(s.input1 + ' [V]') 
-    plt.title('UMZI Lock Drift Measurement')
-    plt.legend()
-    plt.show()
-    save_drift_data(res, t, T, delay)
+    def make_experiment_folder(self, foldername=""):
+        if not os.path.exists(self.base_folder):
+            os.makedirs(self.base_folder)
 
-def unlock_and_measure_drift(T = 1, delay = 0.1):
-    s.duration = T  # set duration
-    s.input2 = 'pid0' # monitor lock error signal
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        if foldername == "":
+            foldername = f"run_{timestamp}"
+        self.folder = os.path.join(self.base_folder, foldername)
+        if not os.path.exists(self.folder):
+            os.makedirs(self.folder)
 
-    s.trig_source = 'immediately'
-    fut = s.single_async()  # start acquisition
-    v_start = s.voltage_in1
-    print(f"Starting voltage: {v_start:.4f} V")
 
-    sleep(delay)  # wait a bit
- 
-    p.rp.pid0.paused = True  # unlock
-    print("Curve ready:", s.curve_ready())
+    def save_drift_data(self, res, t, T, delay):
+        """Save arrays, the current figure and parameters to a timestamped folder."""
+        self.save_folder = self.folder
+        if self.subfolder is not None:
+            self.save_folder = os.path.join(self.folder, self.subfolder)
+            os.makedirs(self.save_folder) 
+        print("Save folder:", self.save_folder)
 
-    take_curve_and_plot(fut, T, delay, abs = False)
-    s.input2 = 'iq1'  # restore input
+        np.save(os.path.join(self.save_folder, "res.npy"), res)
+        np.save(os.path.join(self.save_folder, "t.npy"), t)
+        plt.savefig(os.path.join(self.save_folder, "plot.png"), dpi=300)
 
-def check_locked(threshold=0.04): 
-    count = 0 
-    while (count < 5): 
-        if abs(s.voltage_in1) < threshold: 
-            count += 1
-            sleep(0.1)
+        with open(os.path.join(self.save_folder, "params.txt"), "w") as f:
+            f.write(f"delay = {delay}\n")
+            f.write(f"T = {T}\n")
+
+        print(f"Saved drift data to: {self.save_folder}")
+
+    def take_curve_and_plot(self, fut, T=None, delay=None, absolute=False, label=""):
+        res = fut.result()
+        ch1 = res[0]
+        ch2 = res[1]
+        t = np.array(self.s.times)
+        if absolute:
+            ch1 = np.abs(ch1)
+        plt.plot(t, ch1, label=label + ' iq0')
+        plt.plot(t, ch2, label=label + ' pid0')
+        plt.xlabel('Time [s]')
+        plt.ylabel(self.s.input1 + ' [V]')
+        plt.title('UMZI Lock Drift Measurement')
+        plt.legend()
+        
+        self.save_drift_data(res, t, T, delay) 
+
+    def unlock_and_measure_drift(self, T=None, delay=None):
+        T = T if T is not None else self.T
+        delay = delay if delay is not None else self.delay
+        self.s.duration = T
+        self.s.input2 = 'pid0'
+        try:
+            self.s.trig_source = 'immediately'
+        except Exception:
+            self.s.trigger_source = 'immediately'
+
+        fut = self.s.single_async()
+        v_start = self.s.voltage_in1
+        print(f"Starting voltage: {v_start:.4f} V")
+        sleep(delay)
+
+        self.p.rp.pid0.paused = True
+
+        print("Curve ready:", self.s.curve_ready())
+        T_left = 2 * T - delay
+        sleep(T_left)
+        print("Curve ready:", self.s.curve_ready())
+
+        if self.s.curve_ready():
+            self.take_curve_and_plot(fut, T=T, delay=delay, absolute=False)
         else:
-            return False
-    return True
+            exit("Abort: curve was not ready after waiting period")
 
-tries = 0
-MAXtries = 40
-p.rp.pid0.paused = False  # ensure lock is active
-while not check_locked() and tries < MAXtries:
-    tries += 1
-    print(f"Waiting for lock times {tries}")
-    time.sleep(0.1)
-    if p.rp.pid0.ival > 3.9:
-        p.rp.pid0.ival = 0  # reset integrator to help acquire lock
-        print("ival reset to 0")
+        self.s.input2 = 'iq1'
 
-if not True: #check_locked():
-    exit("Could not acquire lock")
+    def check_locked(self):
+        count = 0
+        while count < 5:
+            if abs(self.s.voltage_in1) < self.threshold:
+                count += 1
+                sleep(0.1)
+            else:
+                return False
+        return True
 
-else:
-    print("Lock acquired with s.voltage_in1 =", s.voltage_in1)
-    unlock_and_measure_drift()
-    exit("We plotted")
+    def run(self):
+        tries = 0
+        self.p.rp.pid0.paused = False
+        for tries in range(self.max_tries):
+            print(f"Waiting for lock times {tries}")
+            time.sleep(0.1)
+            
+            if self.check_locked(): 
+                print("Lock acquired with s.voltage_in1 =", self.s.voltage_in1)
+                self.unlock_and_measure_drift()
+                print("We plotted")
+                return True
+
+        if self.p.rp.pid0.ival > 3.9:
+            self.p.rp.pid0.ival = 0
+            print("ival reset to 0")
+
+        print("Could not acquire lock")
+        return False
+
+    def run_multiple(self, N):
+        self.make_experiment_folder()
+        for exp_num in range(N):
+            self.subfolder = str(exp_num)
+            self.run()
+
+if __name__ == '__main__':
+    dm = DriftMeasurement(T=1.0, delay=0.1)
+
+    dm.run_multiple(3)
