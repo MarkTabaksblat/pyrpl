@@ -64,11 +64,12 @@ class RPLockboxMZI2(Pyrpl):
         '''
         self.phase_setpoint = phase_setpoint
 
-        #Here we calculate what quadrature factors we need to get the right phase setpoint in sin(phi - phi_set) out of out_IQ0 + out_IQ1
-        #With iq_calib_gain_ch1 and 2 which whic
         #There is a 0->1 and 1-> 2 'issue' because the iq works with 0 and 1 but the scope works wiht ch1 and ch2
         new_quadrature_factor_iq0 = - np.cos(phase_setpoint) * self.iq_calib_gain_ch1 / (self.iq_model_ch1.fit_result.params[self.iq_model_ch1.prefix+'amp'].value)
         new_quadrature_factor_iq1 = np.sin(phase_setpoint) * self.iq_calib_gain_ch2 / (self.iq_model_ch2.fit_result.params[self.iq_model_ch2.prefix+'amp'].value)
+        #I DONT THINK  THIS IS CORRECT YET! IT IS JUST SET BY THE ALREADY EXISTING
+        #QUADRATURES IN take_calibration data!!!!!!
+
 
         # First two cases are required to avoid rounding errors for locking near 0, pi/2, pi, ...
         # where either only the cosine or sine should be used as the error signal.
@@ -86,8 +87,6 @@ class RPLockboxMZI2(Pyrpl):
         self.rp.pid0.setup(setpoint=0, input="iq0", differential_mode_enabled=True) 
         #WHY DO WE TURN ON THE DIFFERENTIAL MODE??????????????????????????????????????????????????????????????????????????????????????????????
         #WHY DO WE TURN ON THE PID FEEBACK??????????????
-        
-        
         
         self.rp.pid1.setup(input="iq1", output_direct='off') #of course then PID1 should not be doing anything!
         self.rp.iq0.setup(output_direct="out2")
@@ -123,7 +122,7 @@ class RPLockboxMZI2(Pyrpl):
             rolling_mode=False,
             trigger_delay=0.0
         )
-        self.rp.iq0.synchronize_iqs() #This should not matter; it aligns the phase of the cos (which we dont use) and the sin signal used for demodulation
+        self.rp.iq0.synchronize_iqs()
         self.rp.pid0.reg_integral = 0 #Set integral value of feedback to 0
 
     def take_calibration_data(self):
@@ -227,6 +226,8 @@ class RPLockboxMZI2(Pyrpl):
 
 
         self.iq_calib_gain_ch1, self.iq_calib_gain_ch2 = self.rp.iq0.quadrature_factor, self.rp.iq1.quadrature_factor
+        #OK, BUT WHERE DO  WE APPLY A CORRECTION? 
+
 
     def fit_calibration_data(self):
         '''
@@ -234,9 +235,9 @@ class RPLockboxMZI2(Pyrpl):
         which are lmfit.Model subclasses. These custom models are used to fit the calibration data
         and extract the required parameters for locking the interferometer.
         '''
-        self.det_model_ch1 = SinusoidalModel("det", 1, [0,0.2,0.15,np.pi]) #WHAT DO THESE ARGUMENTS DO? 
-        self.iq_model_ch1 = SinusoidalModel("iq", 1, [0,0.5,0.15,np.pi])
-        self.iq_model_ch2 = SinusoidalModel("iq", 2, [0,0.6,0.15,np.pi])
+        self.det_model_ch1 = SinusoidalModel("det", 1, guesses = [0,0.2,0.15,np.pi]) #WHAT DO THESE ARGUMENTS DO? 
+        self.iq_model_ch1 = SinusoidalModel("iq", 1, guesses = [0,0.5,0.15,np.pi])
+        self.iq_model_ch2 = SinusoidalModel("iq", 2, guesses = [0,0.6,0.15,np.pi])
         #offset, amplitude, T, phase
         
         det_params_ch1 = self.det_model_ch1.guess(self.det_calib_ch1, self.det_calib_time)
@@ -456,4 +457,3 @@ def combine_axes_to_subplots(axes, nrows=1, ncols=None, figsize=(10, 5)):
 
 if __name__ == "__main__":
     obj = RPLockboxMZI2(hostname="172.16.20.41", gui=True, config_file='travis_global_config', yml_file='lockbox_config.yml')
-    #What  is travis??

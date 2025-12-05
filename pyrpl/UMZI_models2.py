@@ -4,37 +4,69 @@ from lmfit.models import Model, update_param_vals
 
 
 #Why make a class out of this instead of just calling the functions where you are doing the fitting?
+# # def signal_func():
 
-class UMZIModel2(Model):  #A parent class of the cos_model and sin_model, and that is all I think...
-    def __init__(self, func, cal_type, guesses):
-        super().__init__(func)
-        self.cal_type = cal_type #are we fitting iq or det
-        self.other_model = None #not sure what this is used for yet
+# # if 
+# Model(func1)
+# #
+# Model(func2)
+class SinusoidalModel(Model):
+    """Merged model that contains the functionality previously in UMZIModel2.
+
+    This class wraps an lmfit.Model and provides helpers for guessing
+    parameters, performing the fit, locking phase from another model,
+    and utilities to extract phase/time relations.
+    """
+    def __init__(self, cal_type, channel, guesses=None):
+        self.channel = channel
+        self.cal_type = cal_type
+
+        if self.cal_type == "det": 
+            self.fit_func_str = "cos"
+            self.func = lambda time, amp, offset, T, phase: \
+                offset + amp * np.cos(2 * np.pi / T * time + phase)
+            
+        elif self.cal_type == 'iq' and self.channel == 1:   
+            self.fit_func_str = "(-sin)"
+            self.func = lambda time, amp, offset, T, phase: \
+                offset - amp * np.sin(2 * np.pi / T * time + phase)
+
+        elif self.cal_type == 'iq' and self.channel == 2:
+            self.fit_func_str = "(-cos)"
+            self.func = lambda time, amp, offset, T, phase: \
+                offset - amp * np.cos(2 * np.pi / T * time + phase)
+
+        super().__init__(self.func)
+
+        self.prefix = f"{cal_type}_{channel}_"
+
+        self.other_model = None
         self.guesses = guesses
+        self.fit_result = None
+        # placeholders populated after fit
+        self.amp_fit = None
+        self.offset_fit = None
+        self.phase_fit = None
+        self.T_fit = None
+        #self.phase = None
+        self.time_data = None
+        self.signal_data = None
 
-    def guess(self, data, time, **kwargs): #This function sets the params of it's parent the Model depending on the variable cal_type of the parent
-                                            #We can delete the time argument
-        """This function sets the initial parameter guesses 
-        for the model based on the calibration type and channel.
-        It basically measures already the amplitude.
-        Offset, V_pi and phase are just given bounds.
-        Though phase is guessed in a different functinon below."""
+    def guess(self, data, time=None, **kwargs):
+        """Set initial parameter hints for the model based on data."""
+        self.set_param_hint("amp", value=np.max(data) - np.mean(data), vary=True, min=0.1)
 
-        #offset, amplitude, T, phase
-
-        self.set_param_hint("amp", value=np.max(data) - np.mean(data), vary=True, min=0.1) 
-        
-        if self.cal_type == "iq": #set the offset for the iq model, of course we want it to be zero for iq
-            self.set_param_hint("offset", value=0, min=-0.1, max=0.1, vary=True)
+        if self.cal_type == "iq":
+            self.set_param_hint("offset", min=-0.1, max=0.1, vary=True)
         else:
-            self.set_param_hint("offset", value=np.max(data)/2, min=-1, max=1, vary=True)
+            self.set_param_hint("offset", min=-1, max=1, vary=True)
 
         #CAN WE LEAVE OUT THESE VALUES? I THINK THEY ARE VERY SETUP SPECIFIC.
-        self.set_param_hint("T", value=self.guesses[2], min=0.01, max=0.02, vary=True) 
-        self.set_param_hint("phase", value=self.guesses[3], min=-1*np.pi, max=1*np.pi, vary=True)
+        self.set_param_hint("T", min=0.01, max=0.02, vary=True) 
+        self.set_param_hint("phase", min=-1*np.pi, max=1*np.pi, vary=True)
 
         params = self.make_params()
-        return update_param_vals(params, self.prefix, **kwargs) #(inherited) function of the class to set the param guesses according to the hints
+        return update_param_vals(params, self.prefix, **kwargs)
 
     def perform_fit(self, data, params, time): #Fit the model to the data
 
@@ -45,14 +77,14 @@ class UMZIModel2(Model):  #A parent class of the cos_model and sin_model, and th
         self.offset_fit = self.fit_result.params[self.prefix+"offset"].value
         self.phase_fit = self.fit_result.params[self.prefix+"phase"].value
         self.T_fit = self.fit_result.params[self.prefix+"T"].value
-
+        """
         self.phase = self.get_phase_from_time(time) #function defined below. Get the phase when applying 0 V. 
         self.phase -= 2*np.pi * (np.max(self.phase)//(2*np.pi)) #Get the phase within 0 to 2 pi
-
+        """
         self.time_data = time
         self.signal_data = data
 
-        self.print_params()
+        self.fit_result.params.pretty_print()
 
     #Called before doign a peform_fit. 
     def lock_phase_guess(self, params, other_model, **kwargs):
@@ -73,70 +105,11 @@ class UMZIModel2(Model):  #A parent class of the cos_model and sin_model, and th
         )
         return update_param_vals(params, self.prefix, **kwargs)
     
-    def get_phase_from_time(self, time):  #does this return an aray?? 
-        return 2 * np.pi/self.T_fit * time + self.phase_fit
-    #2 pi / T * t + phase_fit
-
-    def print_params(self):
-        if self.fit_result is not None:
-            self.fit_result.params.pretty_print()
-        else:
-            self.print_params()
-
-class SinusoidalModel(UMZIModel2):
-    def __init__(self, cal_type, channel, guesses):
-        super().__init__(self.evaluate, cal_type, guesses)
-        self.prefix = f"{cal_type}_{channel}_"
-        self.channel = channel
-        if self.cal_type == "det": 
-            self.fit_func_str = "cos"
-        elif self.cal_type == 'iq' and self.channel == 1:   
-            self.fit_func_str = "(-sin)"
-        elif self.cal_type == 'iq' and self.channel == 2:
-            self.fit_func_str = "(-cos)"  
-
-    def evaluate(self, time, amp, offset, T, phase):  #Outputs the expected voltage. 
-        #WHAT IS THE DIFFERENCE WITH THE LINE ABOVE IN THE GENERAL MODEL? 
-        modulation_phase = 2 * np.pi/T * time
-
-        if self.cal_type == "det": 
-            return amp * np.cos(modulation_phase + phase) + offset
-        elif self.cal_type == 'iq' and self.channel == 1:   
-            return -1 * amp * np.sin(modulation_phase + phase) + offset
-        elif self.cal_type == 'iq' and self.channel == 2:
-            return -1 * amp * np.cos(modulation_phase + phase) + offset
-    
-    """
-    def phase_relation(self, phase=None, amp=None, offset=None): #What does this function do??
-        if phase is None and self.phase is not None:
-            phase = self.phase
-        if amp is None and self.amp_fit is not None:
-            amp = self.amp_fit
-        if offset is None and self.offset_fit is not None:
-            offset = self.offset_fit
-        
-        return amp * np.sin(phase) + offset
-    """
-    def get_phase_from_voltage(self, voltage, function_increasing=True):
-        voltage_clipped = np.clip(voltage, self.offset_fit - np.abs(self.amp_fit), self.offset_fit + np.abs(self.amp_fit))
-        # if voltage_clipped != voltage:
-        #     print(f"Warning: Voltage {voltage} clipped to {voltage_clipped} to fit within the range of the {self.prefix} model.")
-
-        answer_between_0_pi = np.arccos((voltage_clipped - self.offset_fit) / self.amp_fit)
-        if self.channel == 1:
-            # Channel 1 is the - cos(phi)
-            answer_between_0_2pi = answer_between_0_pi if function_increasing else 2*np.pi - answer_between_0_pi
-        elif self.channel == 2:
-            # Channel 2 is the + cos(phi)
-            answer_between_0_2pi = np.pi - answer_between_0_pi if function_increasing else answer_between_0_pi
-
-        return answer_between_0_2pi
-    
     def create_calibration_plot(self):
         fig, ax = plt.subplots()
         ax.plot(self.time_data, self.signal_data, label='Data', color='blue')
         ax.plot(self.time_data, self.fit_result.best_fit, label='Fit', color='red', ls="--")
-        ax.plot(self.time_data, self.fit_result.init_fit, label='Initial Fit', color='grey', linestyle='--', alpha=0.1)
+        #ax.plot(self.time_data, self.fit_result.init_fit, label='Initial Fit', color='grey', linestyle='--', alpha=0.1)
 
         ax.set_title(
             (
@@ -155,7 +128,45 @@ class SinusoidalModel(UMZIModel2):
 
         return fig, ax
 
+    
+    """
+    def get_phase_from_time(self, time):  #does this return an aray?? 
+        return 2 * np.pi/self.T_fit * time + self.phase_fit
+    #2 pi / T * t + phase_fit
 
+    def print_params(self):
+        if self.fit_result is not None:
+            self.fit_result.params.pretty_print()
+        else:
+            self.print_params()  
+    
+    def phase_relation(self, phase=None, amp=None, offset=None): #What does this function do??
+        if phase is None and self.phase is not None:
+            phase = self.phase
+        if amp is None and self.amp_fit is not None:
+            amp = self.amp_fit
+        if offset is None and self.offset_fit is not None:
+            offset = self.offset_fit
+        
+        return amp * np.sin(phase) + offset
+    
+    def get_phase_from_voltage(self, voltage, function_increasing=True):
+        voltage_clipped = np.clip(voltage, self.offset_fit - np.abs(self.amp_fit), self.offset_fit + np.abs(self.amp_fit))
+        # if voltage_clipped != voltage:
+        #     print(f"Warning: Voltage {voltage} clipped to {voltage_clipped} to fit within the range of the {self.prefix} model.")
+
+        answer_between_0_pi = np.arccos((voltage_clipped - self.offset_fit) / self.amp_fit)
+        if self.channel == 1:
+            # Channel 1 is the - cos(phi)
+            answer_between_0_2pi = answer_between_0_pi if function_increasing else 2*np.pi - answer_between_0_pi
+        elif self.channel == 2:
+            # Channel 2 is the + cos(phi)
+            answer_between_0_2pi = np.pi - answer_between_0_pi if function_increasing else answer_between_0_pi
+
+        return answer_between_0_2pi
+    """
+
+""" Old garbage
 class SineModel(UMZIModel2):
     def __init__(self, cal_type, channel):
         super().__init__(self.evaluate, cal_type)
@@ -219,6 +230,6 @@ class CosineModel(UMZIModel2):
             answer_between_0_2pi = np.pi - answer_between_0_pi if function_increasing else answer_between_0_pi
 
         return answer_between_0_2pi
-
+"""
 
 
